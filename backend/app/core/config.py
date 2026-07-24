@@ -1,0 +1,57 @@
+"""Application configuration.
+
+Settings are loaded from environment variables (and an optional local `.env`
+file). Never hard-code secrets or hosts here — see `.env.example` for the full
+list of supported variables.
+"""
+
+from functools import lru_cache
+
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class Settings(BaseSettings):
+    """Runtime configuration, populated from the environment.
+
+    Field names are lower-case; the matching env var is the upper-case form
+    (e.g. ``FRONTEND_ORIGIN`` -> ``frontend_origin``).
+    """
+
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+        case_sensitive=False,
+    )
+
+    app_env: str = "development"
+
+    # Comma-separated list of allowed browser origins for CORS.
+    # Kept as a raw string so a single env var can hold multiple origins.
+    frontend_origin: str = "http://localhost:3000"
+
+    # Which embedding implementation to use: "mock" | "deterministic" | "sentence-transformers".
+    # "mock" and "deterministic" both resolve to DeterministicEmbeddingService.
+    embedding_provider: str = "mock"
+
+    # Populated only when a real model is selected (see docs/MODEL_EVALUATION.md).
+    model_name: str = ""
+
+    # Reserved for later phases (multiplayer / history). Empty = not configured.
+    database_url: str = ""
+    redis_url: str = ""
+
+    @property
+    def cors_origins(self) -> list[str]:
+        """Parse ``frontend_origin`` into a clean list of allowed origins."""
+        return [origin.strip() for origin in self.frontend_origin.split(",") if origin.strip()]
+
+    @property
+    def is_production(self) -> bool:
+        return self.app_env.lower() in {"production", "prod"}
+
+
+@lru_cache
+def get_settings() -> Settings:
+    """Return a cached Settings instance (loaded once per process)."""
+    return Settings()

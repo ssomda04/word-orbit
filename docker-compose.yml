@@ -1,0 +1,65 @@
+# Contextle — local development infrastructure.
+#
+# Current scope (Phase 0 / MVP): only the backend runs in Docker.
+# The frontend runs locally with Node (see DEVELOPMENT.md) for fast HMR.
+#
+# Redis and PostgreSQL are NOT started by default. They belong to later
+# phases (multiplayer / history) and are declared behind Compose profiles so
+# they never run unless explicitly requested. See docs/ROADMAP.md.
+#
+# Usage:
+#   docker compose up --build backend        # start only the API
+#   docker compose --profile data up         # also start redis + postgres (later phases)
+#   docker compose config                    # validate this file
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    image: contextle-backend:dev
+    ports:
+      - "8000:8000"
+    environment:
+      APP_ENV: development
+      # Allow the locally-run Next.js dev server to call the API.
+      FRONTEND_ORIGIN: http://localhost:3000
+      EMBEDDING_PROVIDER: mock
+    env_file:
+      # Optional: create backend/.env from backend/.env.example to override.
+      - path: ./backend/.env
+        required: false
+    healthcheck:
+      # Uses Python (already in the image) so we don't add curl to keep it slim.
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0) if urllib.request.urlopen('http://localhost:8000/health').status==200 else sys.exit(1)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # Later-phase services. Enabled only with:  docker compose --profile data up
+  # ---------------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    profiles: ["data"]
+    ports:
+      - "6379:6379"
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16-alpine
+    profiles: ["data"]
+    environment:
+      POSTGRES_USER: contextle
+      POSTGRES_PASSWORD: contextle
+      POSTGRES_DB: contextle
+    ports:
+      - "5432:5432"
+    volumes:
+      - contextle_pgdata:/var/lib/postgresql/data
+    restart: unless-stopped
+
+volumes:
+  contextle_pgdata:

@@ -1,0 +1,74 @@
+# ---------------------------------------------------------------------------
+# Root .gitignore for the Contextle monorepo.
+# Sub-projects (frontend/) may keep their own .gitignore as well.
+# ---------------------------------------------------------------------------
+
+# --- OS / editor ---
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+
+# --- Secrets / environment ---
+# Never commit real env files. Example files (.env.example) ARE committed.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# --- Node / Next.js (frontend) ---
+node_modules/
+.next/
+out/
+build/
+.vercel/
+*.tsbuildinfo
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+coverage/
+
+# --- Python (backend + ml) ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+.venv/
+venv/
+env/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# --- uv ---
+# uv.lock IS committed (reproducible installs); caches are not.
+.uv/
+
+# --- ML artifacts (never commit models / datasets / checkpoints) ---
+# See AGENTS.md: heavy model files, datasets and checkpoints stay out of Git.
+ml/data/*
+!ml/data/.gitkeep
+!ml/data/README.md
+*.bin
+*.pt
+*.pth
+*.ckpt
+*.safetensors
+*.onnx
+*.npy
+*.npz
+.cache/
+models/
+checkpoints/
+.ipynb_checkpoints/
+
+# --- Docker ---
+# (compose files and Dockerfiles are committed; local overrides are not)
+docker-compose.override.yml

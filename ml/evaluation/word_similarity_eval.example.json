@@ -1,0 +1,28 @@
+{
+  "_comment": "Starter template for the Korean word-similarity evaluation set. Expand to ~20-30 answers. See evaluation/README.md.",
+  "version": "0.1.0-example",
+  "language": "ko",
+  "items": [
+    {
+      "answer": "학생",
+      "veryClose": ["학생들", "제자", "생도"],
+      "medium": ["학교", "선생", "공부", "교실"],
+      "unrelated": ["자동차", "바다", "구름"],
+      "confusable": ["학점", "학원"]
+    },
+    {
+      "answer": "바다",
+      "veryClose": ["해양", "대양"],
+      "medium": ["파도", "해변", "물", "배"],
+      "unrelated": ["컴퓨터", "책상", "연필"],
+      "confusable": ["바닥", "바"]
+    },
+    {
+      "answer": "행복",
+      "veryClose": ["기쁨", "즐거움"],
+      "medium": ["웃음", "만족", "사랑"],
+      "unrelated": ["기계", "돌", "숫자"],
+      "confusable": ["행운", "행동"]
+    }
+  ]
+}

@@ -1,0 +1,52 @@
+[project]
+name = "contextle-backend"
+version = "0.1.0"
+description = "Contextle backend — FastAPI service for the semantic word-guessing game."
+readme = "README.md"
+requires-python = ">=3.12"
+
+# Minimal runtime dependencies for the collaboration skeleton.
+# Heavy ML libraries (torch, sentence-transformers, scikit-learn) live in the
+# optional `embeddings` extra and are intentionally NOT installed by default.
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "pydantic>=2.7",
+    "pydantic-settings>=2.3",
+]
+
+[project.optional-dependencies]
+# Install later, once a real model is selected:  uv sync --extra embeddings
+# (See docs/MODEL_EVALUATION.md — do not install these in CI.)
+embeddings = [
+    "sentence-transformers>=3.0",
+    "torch>=2.2",
+    "scikit-learn>=1.4",
+    "numpy>=1.26",
+]
+
+# Dev / CI tooling (PEP 735 dependency group). Installed by `uv sync`.
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "httpx>=0.27",   # required by fastapi.testclient
+    "ruff>=0.6",
+]
+
+[tool.uv]
+# This is an application, not a library — do not build/install it as a package.
+package = false
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+# E/W: pycodestyle, F: pyflakes, I: isort, UP: pyupgrade, B: bugbear, SIM: simplify
+select = ["E", "W", "F", "I", "UP", "B", "SIM"]
+
+[tool.pytest.ini_options]
+# Make the `app` package importable without installing the project.
+pythonpath = ["."]
+testpaths = ["tests"]
+addopts = "-q"

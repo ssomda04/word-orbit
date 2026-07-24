@@ -1,0 +1,2 @@
+# Jupyter notebooks for exploration only. Do not import these from the backend.
+# Clear outputs before committing (large embedded outputs bloat the repo).

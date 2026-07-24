@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: 📖 Documentation
+    url: https://github.com/  # replace with the repo's docs/ path once hosted
+    about: "Read docs/ (PRODUCT, ARCHITECTURE, API_SPEC, DEVELOPMENT, ROADMAP) before filing."
