@@ -1,0 +1,21 @@
+#!/bin/sh
+# Contextle repo hook: reject commits authored/committed as Claude/AI.
+# Activated with:  git config core.hooksPath .githooks
+# See AGENTS.md -> "Git & commit attribution".
+
+author="$(git var GIT_AUTHOR_IDENT 2>/dev/null)"
+committer="$(git var GIT_COMMITTER_IDENT 2>/dev/null)"
+
+# Block if the author/committer name contains "claude" or the email is @anthropic.com.
+if printf '%s\n%s\n' "$author" "$committer" | grep -qiE '(^|[^a-z])claude([^a-z]|$)|@anthropic\.com'; then
+  echo "" >&2
+  echo "✖ Commit blocked: author/committer must be a human, not Claude/AI." >&2
+  echo "  Set a human identity, e.g.:" >&2
+  echo "    git config user.name  \"Your Name\"" >&2
+  echo "    git config user.email \"you@example.com\"" >&2
+  echo "  (See AGENTS.md. If your real name is Claude, commit with --no-verify.)" >&2
+  echo "" >&2
+  exit 1
+fi
+
+exit 0

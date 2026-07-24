@@ -1,0 +1,21 @@
+#!/bin/sh
+# Contextle repo hook: reject commit messages containing Claude/AI attribution.
+# Applies to EVERY commit (any tool, any contributor) once activated with:
+#   git config core.hooksPath .githooks
+# See AGENTS.md -> "Git & commit attribution".
+
+msg_file="$1"
+
+if grep -qiE 'co-authored-by:[[:space:]]*.*(claude|anthropic)|generated with claude|🤖[[:space:]]*generated|noreply@anthropic\.com|claude (opus|sonnet|haiku|code)' "$msg_file"; then
+  echo "" >&2
+  echo "✖ Commit blocked: AI attribution is not allowed in this repository." >&2
+  echo "  Remove from the commit message:" >&2
+  echo "    - 'Co-Authored-By: Claude ...'" >&2
+  echo "    - '🤖 Generated with Claude Code'" >&2
+  echo "    - 'noreply@anthropic.com'" >&2
+  echo "  (See AGENTS.md / docs/COLLABORATION.md.)" >&2
+  echo "" >&2
+  exit 1
+fi
+
+exit 0

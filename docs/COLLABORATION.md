@@ -47,6 +47,10 @@ chore: configure backend linting
 
 Types: `feat` · `fix` · `docs` · `test` · `refactor` · `chore`.
 
+**No AI attribution.** Commits and PRs must **not** include a Claude/AI
+co-author (`Co-Authored-By: Claude …`), "Generated with Claude Code" text, or
+Claude listed as a contributor. Author = the human. (See [../AGENTS.md](../AGENTS.md).)
+
 ## Code review checklist (reviewer)
 
 - Changes stay within the **requested scope** (no drive-by edits).

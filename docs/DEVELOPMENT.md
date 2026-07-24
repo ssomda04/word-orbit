@@ -18,6 +18,11 @@ Install uv: <https://docs.astral.sh/uv/getting-started/installation/>.
 ## First-time setup
 
 ```bash
+# Git hooks (REQUIRED, once per clone) — enforces the no-AI-attribution rule.
+# Blocks commits carrying a Claude/AI co-author or author. See ../AGENTS.md.
+git config core.hooksPath .githooks
+#   macOS/Linux only, make them executable:  chmod +x .githooks/*
+
 # Frontend
 cd frontend
 npm install
