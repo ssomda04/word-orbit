@@ -5,7 +5,10 @@ The team convention is **camelCase on the wire, snake_case in Python**.
 response is serialized consistently. See `docs/API_SPEC.md`.
 """
 
-from pydantic import BaseModel, ConfigDict
+from datetime import UTC, datetime
+from typing import Annotated
+
+from pydantic import BaseModel, ConfigDict, PlainSerializer
 from pydantic.alias_generators import to_camel
 
 
@@ -21,3 +24,16 @@ class CamelModel(BaseModel):
         populate_by_name=True,
         serialize_by_alias=True,
     )
+
+
+def _to_utc_iso_z(value: datetime) -> str:
+    """Render a datetime as ``2026-07-24T11:22:57Z``.
+
+    Pydantic's default output is ``2026-07-24T11:22:57.123456+00:00``, which does
+    not match the timestamp format documented in `docs/API_SPEC.md`.
+    """
+    return value.astimezone(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+# ISO-8601 UTC timestamp, serialized with a `Z` suffix and second precision.
+UtcTimestamp = Annotated[datetime, PlainSerializer(_to_utc_iso_z, return_type=str)]

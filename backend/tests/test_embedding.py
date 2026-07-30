@@ -58,3 +58,14 @@ def test_dev_similarity_rejects_blank(client: TestClient) -> None:
     response = client.post("/api/dev/similarity", json={"first": "", "second": "선생"})
     assert response.status_code == 422
     assert response.json()["code"] == "INVALID_INPUT"
+
+
+def test_dev_similarity_rejects_whitespace_only(client: TestClient) -> None:
+    """Whitespace-only input trips the custom validator, not `min_length`.
+
+    Regression test: the raised ValueError ends up in the error `ctx`, which used
+    to crash the 422 handler and surface as a 500.
+    """
+    response = client.post("/api/dev/similarity", json={"first": "   ", "second": "선생"})
+    assert response.status_code == 422
+    assert response.json()["code"] == "INVALID_INPUT"

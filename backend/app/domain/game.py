@@ -1,0 +1,125 @@
+"""Pure single-player game rules — no FastAPI, no embedding model.
+
+``Game`` owns the invariants of one round: which guesses exist, whether a guess
+wins, and the resulting status transition. Similarity scores are computed
+elsewhere (``app.services.game.service``) and passed in, which keeps this module
+trivially unit-testable.
+
+The answer word lives here and never reaches a response schema on its own; see
+``app.schemas.game.to_game_state_response`` for the single reveal point.
+"""
+
+import unicodedata
+from dataclasses import dataclass, field
+from datetime import datetime
+from enum import StrEnum
+
+from app.core.errors import GameAlreadyFinishedError, InvalidWordError
+
+# Upper bound on a guess. The deterministic mock would happily hash any length,
+# so the limit is a product rule rather than a model constraint.
+MAX_WORD_LENGTH = 50
+
+
+class GameStatus(StrEnum):
+    """Game lifecycle (docs/API_SPEC.md).
+
+    ``ABANDONED`` is part of the documented contract but unreachable today: no
+    endpoint abandons a game and there is no attempt limit.
+    """
+
+    PLAYING = "playing"
+    WON = "won"
+    ABANDONED = "abandoned"
+
+
+def normalize_word(raw: str) -> str:
+    """Return the canonical form used for *both* comparison and embedding.
+
+    Using one function for both is deliberate: if the answer comparison and the
+    vector lookup normalized differently, a guess could score 1.0 without being
+    accepted as the answer.
+
+    Blank input is normally rejected earlier by ``GuessRequest`` (422
+    ``INVALID_INPUT``); the check here is a safety net for non-HTTP callers.
+
+    Raises:
+        InvalidWordError: the word is blank, too long, or contains whitespace.
+    """
+    normalized = unicodedata.normalize("NFKC", raw).strip()
+    if not normalized:
+        raise InvalidWordError("단어가 비어 있습니다.")
+    if len(normalized) > MAX_WORD_LENGTH:
+        raise InvalidWordError(f"단어는 {MAX_WORD_LENGTH}자를 넘을 수 없습니다.")
+    # Phase 1 is word-level; sentence mode (Phase 4) will need to relax this.
+    if any(char.isspace() for char in normalized):
+        raise InvalidWordError("단어에 공백을 포함할 수 없습니다.")
+    return normalized
+
+
+@dataclass(frozen=True, slots=True)
+class Guess:
+    """One scored guess. Immutable — a recorded result never changes."""
+
+    id: str
+    word: str
+    similarity: float
+    is_answer: bool
+    created_at: datetime
+    # Nullable in Phase 1 by contract (docs/API_SPEC.md): ranks arrive with
+    # precomputed nearest neighbours, coordinates with the Phase 2 projection.
+    rank: int | None = None
+    coordinate: tuple[float, float, float] | None = None
+
+
+@dataclass(slots=True)
+class Game:
+    """One single-player round, including the hidden answer."""
+
+    id: str
+    answer: str  # server-only; never serialized while the game is playing
+    created_at: datetime
+    status: GameStatus = GameStatus.PLAYING
+    # Submission order is preserved: it is the raw history the API returns, and
+    # the Phase 2 exploration path depends on it.
+    guesses: list[Guess] = field(default_factory=list)
+
+    @property
+    def guess_count(self) -> int:
+        return len(self.guesses)
+
+    @property
+    def is_finished(self) -> bool:
+        return self.status is not GameStatus.PLAYING
+
+    def find_guess(self, word: str) -> Guess | None:
+        """Return the stored guess for ``word``, or ``None`` if it is new."""
+        return next((guess for guess in self.guesses if guess.word == word), None)
+
+    def record_guess(
+        self,
+        *,
+        guess_id: str,
+        word: str,
+        similarity: float,
+        created_at: datetime,
+    ) -> Guess:
+        """Append a scored guess and apply the win transition.
+
+        Raises:
+            GameAlreadyFinishedError: the game no longer accepts guesses.
+        """
+        if self.is_finished:
+            raise GameAlreadyFinishedError()
+
+        guess = Guess(
+            id=guess_id,
+            word=word,
+            similarity=similarity,
+            is_answer=word == self.answer,
+            created_at=created_at,
+        )
+        self.guesses.append(guess)
+        if guess.is_answer:
+            self.status = GameStatus.WON
+        return guess
