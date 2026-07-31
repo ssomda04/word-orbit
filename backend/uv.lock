@@ -82,6 +82,10 @@ embeddings = [
     { name = "sentence-transformers" },
     { name = "torch" },
 ]
+fasttext = [
+    { name = "fasttext-wheel" },
+    { name = "numpy" },
+]
 
 [package.dev-dependencies]
 dev = [
@@ -94,7 +98,9 @@ dev = [
 requires-dist = [
     { name = "fastapi", specifier = ">=0.115" },
     { name = "fasttext-wheel", marker = "extra == 'embeddings'", specifier = "==0.9.2" },
+    { name = "fasttext-wheel", marker = "extra == 'fasttext'", specifier = "==0.9.2" },
     { name = "numpy", marker = "extra == 'embeddings'", specifier = ">=1.26" },
+    { name = "numpy", marker = "extra == 'fasttext'", specifier = ">=1.26" },
     { name = "pydantic", specifier = ">=2.7" },
     { name = "pydantic-settings", specifier = ">=2.3" },
     { name = "scikit-learn", marker = "extra == 'embeddings'", specifier = ">=1.4" },
@@ -102,7 +108,7 @@ requires-dist = [
     { name = "torch", marker = "extra == 'embeddings'", specifier = ">=2.2" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.30" },
 ]
-provides-extras = ["embeddings"]
+provides-extras = ["embeddings", "fasttext"]
 
 [package.metadata.requires-dev]
 dev = [

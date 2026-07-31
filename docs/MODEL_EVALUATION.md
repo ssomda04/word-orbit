@@ -1,10 +1,11 @@
 # Model Evaluation Plan
 
 > **No final model is selected yet.** FastText has been evaluated and accepted
-> as the first real baseline, while Transformer models remain comparison
-> candidates.
-> `DeterministicEmbeddingService` (a hash-based mock). This document is the plan
-> for choosing a real Korean embedding model, not a decision.
+> as the first real baseline, and it is now wired into the backend as the
+> `fasttext` provider alongside the default `DeterministicEmbeddingService`
+> (a hash-based mock). Transformer models remain comparison candidates. This
+> document is the plan for choosing the *final* Korean embedding model; the
+> FastText wiring is a baseline, not that decision.
 
 ## Goal
 
@@ -88,9 +89,12 @@ model. It uses raw cosine similarity in `[-1, 1]`. The binary model retains
 character-subword OOV behavior; direct-vocabulary and subword-generated vectors
 are counted separately when the library exposes membership.
 
-Historical files under `ml/evaluation/results/fasttext/` were produced with the
-v0.1 relationship criteria. Do not overwrite or compare them as though they used
-v0.2. New runs must use a new empty directory, for example:
+Evaluation result directories under `ml/evaluation/results/` are **local
+artifacts and are never committed** — a fresh clone has none of them. Whoever
+runs the harness keeps their own output; the numbers that matter are transcribed
+into this document. Earlier `results/fasttext/` output used the v0.1
+relationship criteria, so where it still exists locally it must not be compared
+against v0.2 runs. New runs must use a new empty directory, for example:
 
 ```powershell
 uv run --project backend --extra embeddings python .\ml\scripts\evaluate_fasttext.py `
@@ -126,8 +130,27 @@ The baseline result shows strong separation between related and unrelated words,
 but weak separation between `veryClose` and `related`. The next step is to
 compare contextual Transformer models using the same versioned evaluation set.
 
-A real backend implementation conforming to `EmbeddingService` should only be
-added after the comparison stage.
+### Wiring the baseline into the backend
+
+FastText is connected to the backend **as a baseline provider, ahead of the
+Transformer comparison**, deliberately:
+
+- The purpose of the wiring is to verify **service integration and
+  runnability** — that a real model loads once at startup, scores guesses
+  through the existing `EmbeddingService` seam, and survives deployment
+  constraints. It is not a statement about answer quality.
+- **The final model decision still requires** comparing Transformer candidates
+  against this same versioned evaluation set. Nothing below changes because the
+  provider now exists.
+- The measured limits stay exactly as recorded — in particular
+  `veryClose > related` at 51.56%, close to random.
+- Selecting the final model is a separate change: add another
+  `EmbeddingService` implementation and switch `EMBEDDING_PROVIDER`. No caller
+  edits are needed, which is the point of the Protocol.
+
+The default provider remains `mock`; tests and CI never load a model. See
+[`../backend/README.md`](../backend/README.md) for `EMBEDDING_PROVIDER=fasttext`
+and `FASTTEXT_MODEL_PATH`.
 
 ## FastText baseline result
 
@@ -248,4 +271,6 @@ before the final model decision.
 2. Measure rank over the full vocabulary.
 3. Compare FastText with Korean sentence-transformer models.
 4. Evaluate homonyms and context-sensitive inputs separately.
-5. Promote the selected model into a backend `EmbeddingService` implementation.
+5. Decide the final model from that comparison, then add it as a further
+   `EmbeddingService` implementation. The FastText baseline provider already in
+   the backend does not pre-empt this choice.
