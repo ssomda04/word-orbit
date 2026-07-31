@@ -8,6 +8,7 @@ Run locally:
 """
 
 from fastapi import FastAPI, Request
+from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -15,6 +16,7 @@ from fastapi.responses import JSONResponse
 from app import __version__
 from app.api.routes import api_router
 from app.core.config import Settings, get_settings
+from app.core.errors import AppError
 from app.schemas.errors import ErrorResponse
 
 
@@ -44,7 +46,23 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             content=ErrorResponse(
                 code="INVALID_INPUT",
                 message="Request validation failed.",
-                details=exc.errors(),
+                # A failing custom validator leaves the raised exception object in
+                # `ctx`, which is not JSON-serializable; render it as its message
+                # instead. Without this the handler itself raises a 500.
+                details=jsonable_encoder(exc.errors(), custom_encoder={Exception: str}),
+            ).model_dump(mode="json"),
+        )
+
+    # Domain/service failures share the same envelope. FastAPI's HTTPException
+    # would emit {"detail": ...} instead, which is not the documented contract.
+    @app.exception_handler(AppError)
+    async def _app_error_handler(_: Request, exc: AppError) -> JSONResponse:
+        return JSONResponse(
+            status_code=exc.status_code,
+            content=ErrorResponse(
+                code=exc.code,
+                message=exc.message,
+                details=exc.details,
             ).model_dump(mode="json"),
         )
 

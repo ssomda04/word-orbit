@@ -1,12 +1,37 @@
 """Shared pytest fixtures."""
 
 import pytest
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from app.api.deps import answer_selector, game_repository
 from app.main import create_app
+from app.services.game import InMemoryGameRepository
+
+# Pinned answer word: makes guessing deterministic and lets tests assert that
+# this exact string never appears in a response or log while a game is playing.
+TEST_ANSWER = "사과"
+
+# Words that are never the answer, for scoring-only assertions.
+WRONG_WORD = "학생"
+OTHER_WRONG_WORD = "선생"
 
 
 @pytest.fixture
-def client() -> TestClient:
-    """A TestClient bound to a fresh app instance (default: mock embeddings)."""
-    return TestClient(create_app())
+def app() -> FastAPI:
+    """App with a per-test game store and a fixed answer word.
+
+    The real providers are process-cached (`@lru_cache`), so without these
+    overrides game state would leak between tests.
+    """
+    application = create_app()
+    repository = InMemoryGameRepository()
+    application.dependency_overrides[game_repository] = lambda: repository
+    application.dependency_overrides[answer_selector] = lambda: (lambda: TEST_ANSWER)
+    return application
+
+
+@pytest.fixture
+def client(app: FastAPI) -> TestClient:
+    """A TestClient bound to the isolated app (default: mock embeddings)."""
+    return TestClient(app)
