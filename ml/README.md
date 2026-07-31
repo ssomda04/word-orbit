@@ -56,6 +56,47 @@ python -m venv .venv
 Keep notebooks runnable top-to-bottom and prefer moving stable logic into
 `scripts/` so it can run in CI-free batch jobs.
 
+## FastText baseline harness (dataset v0.2)
+
+The versioned dataset separates four relationships: `veryClose` (same or very
+direct concept), `related` (different concepts sharing a normal context),
+`unrelated` (no meaningful or ordinary contextual connection), and `surfaceTrap`
+(form-only resemblance). Do not interpret `surfaceTrap` as an expected semantic
+ordering group.
+
+The harness calculates raw cosine similarity and five strict pairwise accuracies:
+`veryClose > unrelated`, `related > unrelated`, `veryClose > related`,
+`veryClose > surfaceTrap`, and `related > surfaceTrap`. Precision@k and Recall@k
+use only `veryClose` as relevant; separate counts show related words and surface
+traps entering the candidate-only top-k. This ranking is not a full-vocabulary
+game rank.
+
+From the repository root, run a local, already-downloaded model on Windows:
+
+```powershell
+uv run --project backend --extra embeddings python .\ml\scripts\evaluate_fasttext.py `
+  --model-path "C:\models\cc.ko.300.bin" `
+  --dataset ".\ml\evaluation\word_similarity_eval.json" `
+  --output-dir ".\ml\evaluation\results\fasttext-v0.2" `
+  --top-k 10 `
+  --seed 42
+```
+
+For macOS/Linux:
+
+```bash
+uv run --project backend --extra embeddings python ml/scripts/evaluate_fasttext.py \
+  --model-path "/path/to/cc.ko.300.bin" \
+  --dataset "ml/evaluation/word_similarity_eval.json" \
+  --output-dir "ml/evaluation/results/fasttext-v0.2" \
+  --top-k 10 \
+  --seed 42
+```
+
+The output directory must be new or empty. Existing `results/fasttext/` files
+belong to the v0.1 criteria and are intentionally preserved. Increment the JSON
+dataset version whenever candidate membership or relationship definitions change.
+
 ## Honest-interpretation reminders
 
 - A **3D projection is a lossy view**, not the true high-dimensional semantic
