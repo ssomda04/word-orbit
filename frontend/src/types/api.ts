@@ -6,21 +6,40 @@
  * changes — the two are the shared boundary between frontend and backend.
  */
 
-export interface HealthResponse {
-  status: "ok";
+export type GameStatus = "playing" | "won" | "abandoned";
+
+export interface Coordinate {
+  x: number;
+  y: number;
+  z: number;
 }
 
-/** Response of the dev-only `POST /api/dev/similarity` scaffolding endpoint. */
-export interface SimilarityResponse {
-  first: string;
-  second: string;
+export interface CreateGameResponse {
+  gameId: string;
+  status: GameStatus;
+  createdAt: string;
+}
+
+export interface Guess {
+  guessId: string;
+  word: string;
   similarity: number;
-  provider: string;
+  rank: number | null;
+  isAnswer: boolean;
+  coordinate: Coordinate | null;
 }
 
-/** Standard error envelope returned for handled API errors. */
-export interface ApiErrorBody {
+export interface GameStateResponse {
+  gameId: string;
+  status: GameStatus;
+  createdAt: string;
+  guessCount: number;
+  guesses: Guess[];
+  answer: string | null;
+}
+
+export interface ErrorResponse {
   code: string;
   message: string;
-  details?: unknown | null;
+  details: Record<string, unknown> | unknown[] | null;
 }
