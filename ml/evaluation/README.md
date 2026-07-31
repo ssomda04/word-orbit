@@ -4,21 +4,40 @@ Evaluation sets and metrics for comparing candidate Korean embedding models.
 
 ## Evaluation-set format
 
-See [`word_similarity_eval.example.json`](./word_similarity_eval.example.json)
-for the starter template. Each answer word lists related words grouped by how
-close they should be, so we can check whether a model ranks them sensibly:
+[`word_similarity_eval.json`](./word_similarity_eval.json) is the versioned input
+for real runs. [`word_similarity_eval.example.json`](./word_similarity_eval.example.json)
+is schema guidance only. Each answer has four equally sized candidate groups:
 
-- `veryClose` — near-synonyms / tightly related
-- `medium` — loosely related, same domain
-- `unrelated` — should score low
-- `confusable` — surface-similar but semantically different (traps)
+- `veryClose`: synonyms, expressions for the same referent, or a very direct
+  hypernym/hyponym relation.
+- `related`: different referents that commonly share a topic or situation.
+- `unrelated`: neither semantically related nor likely to co-occur in ordinary
+  context.
+- `surfaceTrap`: spelling, syllable, pronunciation, or morphology looks similar,
+  but meaning is nearly unrelated. This is a form-bias diagnostic, not a
+  similarity target.
 
-## How it's used
+## Metrics and interpretation
 
-A model "passes" for an answer when it ranks `veryClose > medium > unrelated`
-on average. Record per-model results (naturalness, speed, memory, size, license,
-CPU-viability, OOV handling, homonyms) in
+A run reports group statistics and these strict pairwise accuracies:
+
+- `veryClose > unrelated`
+- `related > unrelated`
+- `veryClose > related`
+- `veryClose > surfaceTrap`
+- `related > surfaceTrap`
+
+Top-k Precision and Recall treat only `veryClose` as relevant. The report also
+counts `veryCloseInTopK`, `relatedInTopK`, and `surfaceTrapInTopK`. Rankings cover
+only the candidates listed for each answer, not the future game vocabulary.
+
+The v0.2 dataset has 20 answers and four candidates per group. Record model
+results and broader operational criteria in
 [../../docs/MODEL_EVALUATION.md](../../docs/MODEL_EVALUATION.md).
 
-The target is ~20–30 answer words. The example file holds only a few entries as
-a template — expanding it is the first ML issue (see the root README).
+## Result versioning
+
+Files under `results/fasttext/` were produced with the v0.1 relationship criteria.
+Preserve them as historical output. New v0.2 runs must use a separate empty
+directory such as `results/fasttext-v0.2/`; the reporter rejects a non-empty
+output directory rather than overwriting it.

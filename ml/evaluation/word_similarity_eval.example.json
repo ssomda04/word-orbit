@@ -1,28 +1,37 @@
 {
-  "_comment": "Starter template for the Korean word-similarity evaluation set. Expand to ~20-30 answers. See evaluation/README.md.",
-  "version": "0.1.0-example",
+  "_comment": "Schema example only. Use word_similarity_eval.json for versioned evaluation runs.",
+  "datasetName": "contextle-ko-word-similarity-example",
+  "version": "0.2.0-example",
   "language": "ko",
+  "description": "새 관계 그룹 스키마를 보여주는 축소 예제.",
+  "updatedAt": "2026-07-31",
+  "groupDefinitions": {
+    "veryClose": "동의어, 유의어, 동일 대상 표현 또는 매우 직접적인 상위어·하위어.",
+    "related": "같은 주제나 상황에서 함께 등장하지만 서로 다른 대상.",
+    "unrelated": "의미와 일반 문맥 모두에서 관련이 거의 없는 단어.",
+    "surfaceTrap": "표면 형태만 비슷하고 의미적으로는 거의 무관한 단어."
+  },
   "items": [
     {
-      "answer": "학생",
-      "veryClose": ["학생들", "제자", "생도"],
-      "medium": ["학교", "선생", "공부", "교실"],
-      "unrelated": ["자동차", "바다", "구름"],
-      "confusable": ["학점", "학원"]
+      "answer": "의사",
+      "veryClose": ["의료인", "전문의", "내과의", "의사선생님"],
+      "related": ["환자", "병원", "진료", "처방"],
+      "unrelated": ["기차", "구름", "연필", "축구"],
+      "surfaceTrap": ["의자", "의상", "이사", "의사당"]
     },
     {
-      "answer": "바다",
-      "veryClose": ["해양", "대양"],
-      "medium": ["파도", "해변", "물", "배"],
-      "unrelated": ["컴퓨터", "책상", "연필"],
-      "confusable": ["바닥", "바"]
+      "answer": "책",
+      "veryClose": ["서적", "도서", "책자", "단행본"],
+      "related": ["독서", "도서관", "저자", "책상"],
+      "unrelated": ["폭포", "축구공", "양파", "기관차"],
+      "surfaceTrap": ["책임", "정책", "책정", "책략"]
     },
     {
-      "answer": "행복",
-      "veryClose": ["기쁨", "즐거움"],
-      "medium": ["웃음", "만족", "사랑"],
-      "unrelated": ["기계", "돌", "숫자"],
-      "confusable": ["행운", "행동"]
+      "answer": "시간",
+      "veryClose": ["시각", "세월", "기간", "시기"],
+      "related": ["시계", "과거", "미래", "공간"],
+      "unrelated": ["고추장", "잠수함", "선인장", "배구"],
+      "surfaceTrap": ["시가", "시안", "식간", "치간"]
     }
   ]
 }
