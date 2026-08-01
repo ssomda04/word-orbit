@@ -6,6 +6,10 @@
  * changes — the two are the shared boundary between frontend and backend.
  */
 
+export interface HealthResponse {
+  status: string;
+}
+
 export type GameStatus = "playing" | "won" | "abandoned";
 
 export interface Coordinate {
@@ -43,3 +47,5 @@ export interface ErrorResponse {
   message: string;
   details: Record<string, unknown> | unknown[] | null;
 }
+
+export type ApiErrorBody = ErrorResponse;
