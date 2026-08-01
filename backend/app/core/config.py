@@ -30,9 +30,16 @@ class Settings(BaseSettings):
     # Kept as a raw string so a single env var can hold multiple origins.
     frontend_origin: str = "http://localhost:3000"
 
-    # Which embedding implementation to use: "mock" | "deterministic" | "sentence-transformers".
+    # Which embedding implementation to use:
+    # "mock" | "deterministic" | "fasttext" | "sentence-transformers".
     # "mock" and "deterministic" both resolve to DeterministicEmbeddingService.
     embedding_provider: str = "mock"
+
+    # Absolute path to a local FastText binary model (e.g. cc.ko.300.bin).
+    # Required only when EMBEDDING_PROVIDER=fasttext. The server never downloads
+    # a model. Validated in the embedding factory rather than here, so a mock run
+    # (tests, CI) never fails over a variable it does not use.
+    fasttext_model_path: str = ""
 
     # Populated only when a real model is selected (see docs/MODEL_EVALUATION.md).
     model_name: str = ""

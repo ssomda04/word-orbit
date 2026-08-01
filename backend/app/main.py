@@ -7,6 +7,9 @@ Run locally:
     uv run uvicorn app.main:app --reload
 """
 
+from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
@@ -18,6 +21,20 @@ from app.api.routes import api_router
 from app.core.config import Settings, get_settings
 from app.core.errors import AppError
 from app.schemas.errors import ErrorResponse
+from app.services.embedding import get_embedding_service
+
+
+@asynccontextmanager
+async def _lifespan(_: FastAPI) -> AsyncGenerator[None, None]:
+    """Build the embedding service before the first request is served.
+
+    For the deterministic mock this is a sub-millisecond no-op. For a real model
+    it is the difference between an 8-second first guess and a warm one, and it
+    turns a bad `FASTTEXT_MODEL_PATH` into a loud startup failure instead of a
+    500 that would not even match the documented error envelope.
+    """
+    get_embedding_service()
+    yield
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -27,6 +44,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         title="Contextle API",
         version=__version__,
         description="Semantic word-guessing game backend (skeleton).",
+        lifespan=_lifespan,
     )
 
     # CORS: origins come from configuration, never hard-coded to "*".

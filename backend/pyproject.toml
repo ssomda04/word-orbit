@@ -26,6 +26,16 @@ embeddings = [
     "fasttext-wheel==0.9.2",
 ]
 
+# The FastText baseline provider on its own — no torch, no sentence-transformers.
+# This is what a deployment running EMBEDDING_PROVIDER=fasttext needs:
+#   uv sync --extra fasttext
+# The model file itself is NOT a dependency: download it yourself and point
+# FASTTEXT_MODEL_PATH at it (see docs/MODEL_EVALUATION.md).
+fasttext = [
+    "fasttext-wheel==0.9.2",
+    "numpy>=1.26",
+]
+
 # Dev / CI tooling (PEP 735 dependency group). Installed by `uv sync`.
 [dependency-groups]
 dev = [
@@ -51,3 +61,6 @@ select = ["E", "W", "F", "I", "UP", "B", "SIM"]
 pythonpath = ["."]
 testpaths = ["tests"]
 addopts = "-q"
+markers = [
+    "fasttext: needs the `fasttext` extra AND a local model at FASTTEXT_MODEL_PATH; skipped otherwise",
+]

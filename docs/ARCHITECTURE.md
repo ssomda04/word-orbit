@@ -23,8 +23,9 @@ flowchart LR
     end
 
     subgraph Embedding["EmbeddingService (Protocol)"]
-      Mock["DeterministicEmbeddingService<br/>(now: mock, no model)"]
-      Real["SentenceTransformer…<br/>(later: real model)"]
+      Mock["DeterministicEmbeddingService<br/>(default: mock, no model)"]
+      FT["FastTextEmbeddingService<br/>(baseline: local .bin)"]
+      Real["Final model<br/>(later: after comparison)"]
     end
 
     APIClient -- "HTTP (camelCase JSON)" --> Routes
@@ -68,11 +69,14 @@ Dashed = planned. Solid = implemented in the Phase 0 skeleton.
 
 - Defined as a `Protocol` (`services/embedding/base.py`): `encode`,
   `encode_many`, `similarity`, `project_3d`.
-- **Now:** `DeterministicEmbeddingService` — hash-based, dependency-free, stable
-  per input. Lets frontend/backend build before a model is chosen.
-- **Later:** a `sentence-transformers` implementation selected via
-  [MODEL_EVALUATION.md](./MODEL_EVALUATION.md), loaded **once** at startup and
-  injected through `api/deps.py`. Swapping providers is an env-var change
+- **Default:** `DeterministicEmbeddingService` — hash-based, dependency-free,
+  stable per input. Tests and CI always run on this; no model is ever downloaded.
+- **Baseline:** `FastTextEmbeddingService` — a local FastText `.bin` given by
+  `FASTTEXT_MODEL_PATH`, loaded **once** during app startup and injected through
+  `api/deps.py`. `project_3d` raises `NotImplementedError` until Phase 2.
+- **Later:** the final model chosen via
+  [MODEL_EVALUATION.md](./MODEL_EVALUATION.md), added as one more
+  implementation. Swapping providers is an env-var change
   (`EMBEDDING_PROVIDER`) with no caller edits.
 
 ### Data stores

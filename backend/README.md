@@ -69,14 +69,65 @@ The image runs as a non-root user and ships a `/health` `HEALTHCHECK`.
 
 Copy [`.env.example`](.env.example) to `.env` and adjust. Key variables:
 
-| Variable             | Default                  | Purpose                                            |
-| -------------------- | ------------------------ | -------------------------------------------------- |
-| `APP_ENV`            | `development`            | Environment name.                                  |
-| `FRONTEND_ORIGIN`    | `http://localhost:3000`  | CORS allow-list (comma-separated).                 |
-| `EMBEDDING_PROVIDER` | `mock`                   | `mock` \| `deterministic` \| `sentence-transformers`. |
-| `MODEL_NAME`         | *(empty)*                | Real model id (later phases).                      |
-| `DATABASE_URL`       | *(empty)*                | Reserved (multiplayer/history).                    |
-| `REDIS_URL`          | *(empty)*                | Reserved (multiplayer/history).                    |
+| Variable               | Default                  | Purpose                                            |
+| ---------------------- | ------------------------ | -------------------------------------------------- |
+| `APP_ENV`              | `development`            | Environment name.                                  |
+| `FRONTEND_ORIGIN`      | `http://localhost:3000`  | CORS allow-list (comma-separated).                 |
+| `EMBEDDING_PROVIDER`   | `mock`                   | `mock` \| `deterministic` \| `fasttext` \| `sentence-transformers`. |
+| `FASTTEXT_MODEL_PATH`  | *(empty)*                | Absolute path to a local FastText `.bin`. Required only for `fasttext`. |
+| `MODEL_NAME`           | *(empty)*                | Real model id (later phases).                      |
+| `DATABASE_URL`         | *(empty)*                | Reserved (multiplayer/history).                    |
+| `REDIS_URL`            | *(empty)*                | Reserved (multiplayer/history).                    |
+
+### Running on the FastText baseline
+
+The default is the mock — nothing below is needed for normal development, tests,
+or CI. To score guesses with the real baseline model instead:
+
+```powershell
+# 1. Install the FastText-only extra (no torch, no sentence-transformers).
+uv sync --extra fasttext
+
+# 2. Point at a model you downloaded yourself. Nothing here downloads one, and
+#    model files are never committed (.gitignore blocks *.bin).
+$env:EMBEDDING_PROVIDER = "fasttext"
+$env:FASTTEXT_MODEL_PATH = "C:/models/cc.ko.300.bin"
+
+uv run --extra fasttext uvicorn app.main:app --reload
+```
+
+```bash
+# macOS / Linux
+uv sync --extra fasttext
+export EMBEDDING_PROVIDER=fasttext
+export FASTTEXT_MODEL_PATH=/opt/models/cc.ko.300.bin
+uv run --extra fasttext uvicorn app.main:app --reload
+```
+
+Notes:
+
+- The model is loaded **once, at startup** (`app.main` lifespan), so a bad path
+  fails the server immediately instead of surfacing as a 500 on the first guess.
+  Expect a pause of roughly 8 s while `cc.ko.300.bin` loads.
+- Use an **absolute path**; a relative one resolves against the process working
+  directory (`backend/` locally, `/app` in Docker). Prefer forward slashes and an
+  ASCII-only path on Windows.
+- Out-of-vocabulary guesses are fine — FastText composes character n-grams.
+- `rank` and `coordinate` stay `null`: the contract is unchanged, and
+  `project_3d` is not implemented for this provider (Phase 2).
+- The Docker image does **not** install the extra; running FastText in a
+  container needs a Dockerfile change plus a mounted model file.
+
+### Optional FastText tests
+
+`pytest` skips them unless the extra is installed **and** `FASTTEXT_MODEL_PATH`
+points at a real file, so the default suite and CI stay model-free:
+
+```powershell
+uv sync --extra fasttext
+$env:FASTTEXT_MODEL_PATH = "C:/models/cc.ko.300.bin"
+uv run --extra fasttext pytest -m fasttext -v
+```
 
 ## Layout
 
@@ -91,7 +142,7 @@ app/
 │  └─ errors.py       # AppError hierarchy -> the standard error envelope
 ├─ schemas/           # Pydantic wire models (camelCase JSON)
 ├─ services/
-│  ├─ embedding/      # EmbeddingService Protocol + deterministic mock + factory
+│  ├─ embedding/      # EmbeddingService Protocol + mock + FastText + factory
 │  └─ game/           # GameRepository Protocol + in-memory store + GameService
 └─ domain/            # pure game logic — no FastAPI, no model
    ├─ game.py         # Game, Guess, GameStatus, word normalization
