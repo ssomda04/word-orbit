@@ -21,6 +21,7 @@ may depend on that ordering.
 
 import importlib.util
 import os
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -58,22 +59,49 @@ UNRELATED = "컴퓨터"
 EXPECTED_DIMENSION = 300
 
 
+@pytest.fixture(autouse=True)
+def _isolated_embedding_provider() -> Iterator[None]:
+    """Shadow the conftest isolation fixture for this module only.
+
+    conftest resets the process-wide service around *every* test. That is right
+    for the mock, but here it would reload several gigabytes of weights per test:
+    a real run took 132 s for 11 tests, and a module-scoped model plus a
+    per-test one meant two copies resident at once. This module loads the model
+    exactly once instead — see `_fasttext_environment`.
+    """
+    yield
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _fasttext_environment() -> Iterator[None]:
+    """Point the whole module at the real provider, and clean up afterwards."""
+    with pytest.MonkeyPatch.context() as patcher:
+        patcher.setenv("EMBEDDING_PROVIDER", "fasttext")
+        patcher.setenv("FASTTEXT_MODEL_PATH", _MODEL_PATH)
+        get_settings.cache_clear()
+        reset_embedding_service()
+        yield
+    # Drop the multi-gigabyte model as soon as this module is done.
+    get_settings.cache_clear()
+    reset_embedding_service()
+
+
 @pytest.fixture(scope="module")
 def service() -> FastTextEmbeddingService:
-    """Load the real model once for the whole module."""
-    loaded = FastTextEmbeddingService.load(Path(_MODEL_PATH))
+    """The one real model for this module — the single expensive load."""
+    loaded = get_embedding_service()
     assert isinstance(loaded, FastTextEmbeddingService)
     return loaded
 
 
 @pytest.fixture
-def fasttext_client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
-    """An app wired to the real FastText provider, with an isolated game store."""
-    monkeypatch.setenv("EMBEDDING_PROVIDER", "fasttext")
-    monkeypatch.setenv("FASTTEXT_MODEL_PATH", _MODEL_PATH)
-    get_settings.cache_clear()
-    reset_embedding_service()
+def fasttext_client(service: FastTextEmbeddingService) -> TestClient:
+    """An app on the real provider, with a per-test game store.
 
+    Deliberately *not* used as a context manager by the tests below: entering it
+    would run the lifespan, and the point here is to reuse the already-loaded
+    model. Startup warm-up has its own test.
+    """
     application = create_app()
     repository = InMemoryGameRepository()
     application.dependency_overrides[game_repository] = lambda: repository
@@ -117,18 +145,27 @@ def test_subword_oov_word_still_gets_a_vector(service: FastTextEmbeddingService)
     assert len(vector) == EXPECTED_DIMENSION
 
 
-def test_provider_is_built_once(fasttext_client: TestClient) -> None:
+def test_provider_is_built_once(service: FastTextEmbeddingService) -> None:
+    assert get_embedding_service() is service
     assert get_embedding_service() is get_embedding_service()
+
+
+def test_startup_reuses_the_already_loaded_model(service: FastTextEmbeddingService) -> None:
+    """Running the lifespan must not load a second copy of the weights."""
+    with TestClient(create_app()) as client:
+        response = client.get("/health")
+
+    assert response.status_code == 200
+    assert get_embedding_service() is service
 
 
 # --- Through the API --------------------------------------------------------
 
 
 def test_dev_similarity_endpoint_uses_the_real_provider(fasttext_client: TestClient) -> None:
-    with fasttext_client as client:
-        response = client.post(
-            "/api/dev/similarity", json={"first": ANSWER, "second": RELATED}
-        )
+    response = fasttext_client.post(
+        "/api/dev/similarity", json={"first": ANSWER, "second": RELATED}
+    )
 
     body = response.json()
     assert response.status_code == 200
@@ -137,12 +174,11 @@ def test_dev_similarity_endpoint_uses_the_real_provider(fasttext_client: TestCli
 
 
 def test_game_flow_scores_guesses_with_the_real_model(fasttext_client: TestClient) -> None:
-    with fasttext_client as client:
-        game_id = client.post("/api/games").json()["gameId"]
+    game_id = fasttext_client.post("/api/games").json()["gameId"]
 
-        related = client.post(f"/api/games/{game_id}/guesses", json={"word": RELATED})
-        unrelated = client.post(f"/api/games/{game_id}/guesses", json={"word": UNRELATED})
-        state = client.get(f"/api/games/{game_id}")
+    related = fasttext_client.post(f"/api/games/{game_id}/guesses", json={"word": RELATED})
+    unrelated = fasttext_client.post(f"/api/games/{game_id}/guesses", json={"word": UNRELATED})
+    state = fasttext_client.get(f"/api/games/{game_id}")
 
     assert related.status_code == 200
     assert unrelated.status_code == 200
@@ -155,11 +191,10 @@ def test_game_flow_scores_guesses_with_the_real_model(fasttext_client: TestClien
 
 def test_answer_is_not_exposed_while_playing(fasttext_client: TestClient) -> None:
     """The secrecy rule holds with a real model too (AGENTS.md)."""
-    with fasttext_client as client:
-        create = client.post("/api/games")
-        game_id = create.json()["gameId"]
-        guess = client.post(f"/api/games/{game_id}/guesses", json={"word": RELATED})
-        state = client.get(f"/api/games/{game_id}")
+    create = fasttext_client.post("/api/games")
+    game_id = create.json()["gameId"]
+    guess = fasttext_client.post(f"/api/games/{game_id}/guesses", json={"word": RELATED})
+    state = fasttext_client.get(f"/api/games/{game_id}")
 
     escaped = ANSWER.encode("unicode_escape").decode()
     for response in (create, guess, state):
@@ -170,10 +205,9 @@ def test_answer_is_not_exposed_while_playing(fasttext_client: TestClient) -> Non
 
 
 def test_winning_guess_scores_one(fasttext_client: TestClient) -> None:
-    with fasttext_client as client:
-        game_id = client.post("/api/games").json()["gameId"]
-        won = client.post(f"/api/games/{game_id}/guesses", json={"word": ANSWER})
-        state = client.get(f"/api/games/{game_id}")
+    game_id = fasttext_client.post("/api/games").json()["gameId"]
+    won = fasttext_client.post(f"/api/games/{game_id}/guesses", json={"word": ANSWER})
+    state = fasttext_client.get(f"/api/games/{game_id}")
 
     assert won.json()["isAnswer"] is True
     assert won.json()["similarity"] == pytest.approx(1.0)

@@ -73,3 +73,10 @@ checkpoints/
 # --- Docker ---
 # (compose files and Dockerfiles are committed; local overrides are not)
 docker-compose.override.yml
+
+# --- Agent tooling (oh-my-claudecode) ---
+# Runtime state: session logs, plans, handoffs, notepad. Ignored in any
+# sub-project. Project-scoped skills under .omc/skills/ stay committable, so
+# the contents are ignored rather than the directory itself.
+**/.omc/*
+!**/.omc/skills/
