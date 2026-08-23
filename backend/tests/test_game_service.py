@@ -13,6 +13,7 @@ from app.core.errors import GameAlreadyFinishedError, GameNotFoundError, Invalid
 from app.domain.game import MAX_WORD_LENGTH, GameStatus
 from app.services.embedding import DeterministicEmbeddingService
 from app.services.game import GameService, InMemoryGameRepository
+from app.services.ranking import NullRankProvider
 
 ANSWER = "사과"
 
@@ -49,6 +50,9 @@ def service(embedder: FakeEmbeddingService) -> GameService:
         repository=InMemoryGameRepository(),
         embedder=embedder,
         answer_selector=lambda: ANSWER,
+        # No vocabulary in these tests, so every rank is None — the default
+        # wiring. Rank policy itself is covered in tests/test_ranking.py.
+        rank_provider=NullRankProvider(),
     )
 
 
@@ -201,6 +205,7 @@ def real_service() -> GameService:
         repository=InMemoryGameRepository(),
         embedder=DeterministicEmbeddingService(),
         answer_selector=lambda: ANSWER,
+        rank_provider=NullRankProvider(),
     )
 
 

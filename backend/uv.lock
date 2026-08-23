@@ -69,6 +69,7 @@ version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
     { name = "fastapi" },
+    { name = "numpy" },
     { name = "pydantic" },
     { name = "pydantic-settings" },
     { name = "uvicorn", extra = ["standard"] },
@@ -99,6 +100,7 @@ requires-dist = [
     { name = "fastapi", specifier = ">=0.115" },
     { name = "fasttext-wheel", marker = "extra == 'embeddings'", specifier = "==0.9.2" },
     { name = "fasttext-wheel", marker = "extra == 'fasttext'", specifier = "==0.9.2" },
+    { name = "numpy", specifier = ">=1.26" },
     { name = "numpy", marker = "extra == 'embeddings'", specifier = ">=1.26" },
     { name = "numpy", marker = "extra == 'fasttext'", specifier = ">=1.26" },
     { name = "pydantic", specifier = ">=2.7" },

@@ -66,8 +66,9 @@ class Guess:
     similarity: float
     is_answer: bool
     created_at: datetime
-    # Nullable in Phase 1 by contract (docs/API_SPEC.md): ranks arrive with
-    # precomputed nearest neighbours, coordinates with the Phase 2 projection.
+    # Both nullable by contract (docs/API_SPEC.md). `rank` is null when no
+    # vocabulary is configured or the word falls outside it; `coordinate` waits
+    # on the Phase 2 projection.
     rank: int | None = None
     coordinate: tuple[float, float, float] | None = None
 
@@ -103,8 +104,14 @@ class Game:
         word: str,
         similarity: float,
         created_at: datetime,
+        rank: int | None = None,
     ) -> Guess:
         """Append a scored guess and apply the win transition.
+
+        ``rank`` is supplied by the caller for the same reason ``similarity`` is:
+        it comes from a vocabulary and an embedding model, neither of which
+        belongs in the domain. ``None`` means no rank is available, which is a
+        normal outcome (no vocabulary configured, or the word is outside it).
 
         Raises:
             GameAlreadyFinishedError: the game no longer accepts guesses.
@@ -118,6 +125,7 @@ class Game:
             similarity=similarity,
             is_answer=word == self.answer,
             created_at=created_at,
+            rank=rank,
         )
         self.guesses.append(guess)
         if guess.is_answer:

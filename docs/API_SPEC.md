@@ -136,13 +136,23 @@ field at all.
 | `guessId`    | string          | no       |                                                              |
 | `word`       | string          | no       | Normalized (trimmed) form of the guess.                      |
 | `similarity` | number          | no       | Cosine similarity, range **[-1.0, 1.0]**.                    |
-| `rank`       | integer \| null | **yes**  | `null` until precomputed nearest-neighbor ranks exist (Phase 1+). |
+| `rank`       | integer \| null | **yes**  | Position among all known words, 1 = the answer. `null` when the server has no vocabulary configured, or the guess falls outside it. |
 | `isAnswer`   | boolean         | no       | `true` when the guess equals the answer.                     |
 | `coordinate` | object \| null  | **yes**  | `{x,y,z}` for 3D map; `null` until projection exists (Phase 2). |
 
 **Word normalization.** The server trims the word and applies Unicode NFKC before
 scoring; `word` in the response is that normalized form. Guesses are single words:
 internal whitespace is rejected (sentence mode is Phase 4).
+
+**`rank` semantics.** Words are ordered by descending similarity to the answer;
+the answer is always rank 1. Ranks are dense and unique — words with identical
+similarity do **not** share a rank, they are separated by the word itself in
+ascending code-point order. A client must therefore not read equal ranks as
+equal closeness, nor assume a gap in the sequence means anything.
+
+Whether ranks are available at all is a server configuration, not a property of
+the game: with no vocabulary configured every `rank` is `null`, and a client must
+render both cases. A rank recorded on a guess never changes afterwards.
 
 **Duplicate guesses are idempotent.** Re-submitting a word already guessed in this
 game returns the **stored result unchanged** — same `guessId`, same `similarity` —
