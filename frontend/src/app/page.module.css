@@ -933,3 +933,216 @@
     display: none;
   }
 }
+
+/* =========================================
+   3D Embedding Universe
+   ========================================= */
+
+.universe3D {
+  position: relative;
+  width: 100%;
+  min-height: 520px;
+  overflow: hidden;
+  border-radius: 0 0 24px 24px;
+
+  background:
+    radial-gradient(
+      circle at 50% 45%,
+      rgba(33, 82, 150, 0.16) 0%,
+      rgba(12, 32, 70, 0.12) 42%,
+      rgba(3, 10, 25, 0.92) 78%
+    ),
+    #050c1b;
+}
+
+/*
+ * Canvas가 부모 영역 전체를 채우게 한다.
+ */
+.universe3D canvas {
+  display: block;
+  width: 100% !important;
+  height: 100% !important;
+  min-height: 520px;
+  cursor: grab;
+}
+
+.universe3D canvas:active {
+  cursor: grabbing;
+}
+
+/*
+ * 선택한 별의 정보창.
+ * 3D canvas 위에 떠 있는 HUD 형태.
+ */
+.starInformation3D {
+  position: absolute;
+  top: 22px;
+  left: 22px;
+  z-index: 10;
+
+  min-width: 210px;
+  padding: 16px 18px;
+
+  border:
+    1px solid rgba(
+      255,
+      255,
+      255,
+      0.12
+    );
+
+  border-radius: 16px;
+
+  background:
+    rgba(
+      4,
+      10,
+      25,
+      0.76
+    );
+
+  backdrop-filter:
+    blur(14px);
+
+  box-shadow:
+    0 12px 32px
+      rgba(
+        0,
+        0,
+        0,
+        0.28
+      );
+
+  color: #f4f8ff;
+}
+
+.starInformation3D dl {
+  display: grid;
+  gap: 8px;
+
+  margin:
+    14px 0 0;
+}
+
+.starInformation3D dl > div {
+  display: flex;
+  justify-content:
+    space-between;
+  gap: 20px;
+}
+
+.starInformation3D dt {
+  color:
+    rgba(
+      244,
+      248,
+      255,
+      0.58
+    );
+
+  font-size: 12px;
+}
+
+.starInformation3D dd {
+  margin: 0;
+
+  font-size: 12px;
+  font-weight: 700;
+}
+
+/*
+ * 3D 컨트롤 안내 문구.
+ */
+.spaceHint3D {
+  position: absolute;
+  left: 50%;
+  bottom: 16px;
+  z-index: 10;
+
+  display: flex;
+  gap: 8px;
+  align-items: center;
+
+  transform:
+    translateX(-50%);
+
+  padding: 8px 12px;
+
+  border:
+    1px solid
+      rgba(
+        255,
+        255,
+        255,
+        0.08
+      );
+
+  border-radius: 999px;
+
+  background:
+    rgba(
+      2,
+      6,
+      17,
+      0.58
+    );
+
+  color:
+    rgba(
+      244,
+      248,
+      255,
+      0.64
+    );
+
+  font-size: 11px;
+
+  pointer-events: none;
+
+  backdrop-filter:
+    blur(10px);
+}
+
+.apiError {
+  margin-top: 12px;
+}
+
+.answerReveal {
+  margin-top: 12px;
+}
+
+/*
+ * 작은 화면에서는 정보창이
+ * 너무 크게 공간을 차지하지 않도록 한다.
+ */
+@media (
+  max-width: 900px
+) {
+  .universe3D {
+    min-height: 440px;
+  }
+
+  .universe3D canvas {
+    min-height: 440px;
+  }
+
+  .starInformation3D {
+    top: 14px;
+    left: 14px;
+
+    min-width: 180px;
+
+    padding: 12px 14px;
+  }
+
+  .spaceHint3D {
+    width:
+      max-content;
+    max-width:
+      calc(
+        100% - 24px
+      );
+
+    font-size: 10px;
+  }
+}
