@@ -13,10 +13,15 @@ from fastapi import Depends
 from app.domain.words import AnswerSelector, RandomAnswerSelector
 from app.services.embedding import EmbeddingService, get_embedding_service
 from app.services.game import GameRepository, GameService, InMemoryGameRepository
+from app.services.ranking import RankProvider, get_rank_provider
 
 
 def embedding_service() -> EmbeddingService:
     return get_embedding_service()
+
+
+def rank_provider() -> RankProvider:
+    return get_rank_provider()
 
 
 @lru_cache
@@ -46,15 +51,22 @@ def answer_selector() -> AnswerSelector:
 EmbeddingServiceDep = Annotated[EmbeddingService, Depends(embedding_service)]
 GameRepositoryDep = Annotated[GameRepository, Depends(game_repository)]
 AnswerSelectorDep = Annotated[AnswerSelector, Depends(answer_selector)]
+RankProviderDep = Annotated[RankProvider, Depends(rank_provider)]
 
 
 def game_service(
     repository: GameRepositoryDep,
     embedder: EmbeddingServiceDep,
     selector: AnswerSelectorDep,
+    ranker: RankProviderDep,
 ) -> GameService:
     """Construct the service per request — cheap, since all state is in the store."""
-    return GameService(repository=repository, embedder=embedder, answer_selector=selector)
+    return GameService(
+        repository=repository,
+        embedder=embedder,
+        answer_selector=selector,
+        rank_provider=ranker,
+    )
 
 
 GameServiceDep = Annotated[GameService, Depends(game_service)]

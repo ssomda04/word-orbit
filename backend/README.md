@@ -76,6 +76,8 @@ Copy [`.env.example`](.env.example) to `.env` and adjust. Key variables:
 | `EMBEDDING_PROVIDER`   | `mock`                   | `mock` \| `deterministic` \| `fasttext` \| `sentence-transformers`. |
 | `FASTTEXT_MODEL_PATH`  | *(empty)*                | Absolute path to a local FastText `.bin`. Required only for `fasttext`. |
 | `MODEL_NAME`           | *(empty)*                | Real model id (later phases).                      |
+| `VOCABULARY_PATH`      | *(empty)*                | Word list that guess ranks are computed against. Empty ⇒ `rank` is always null. |
+| `RANK_CACHE_SIZE`      | `32`                     | Answers whose similarity array stays in memory.    |
 | `DATABASE_URL`         | *(empty)*                | Reserved (multiplayer/history).                    |
 | `REDIS_URL`            | *(empty)*                | Reserved (multiplayer/history).                    |
 
@@ -113,10 +115,39 @@ Notes:
   directory (`backend/` locally, `/app` in Docker). Prefer forward slashes and an
   ASCII-only path on Windows.
 - Out-of-vocabulary guesses are fine — FastText composes character n-grams.
-- `rank` and `coordinate` stay `null`: the contract is unchanged, and
-  `project_3d` is not implemented for this provider (Phase 2).
+- `coordinate` stays `null`: `project_3d` is not implemented for this provider
+  (Phase 2). For `rank`, see **Guess ranking** below.
 - The Docker image does **not** install the extra; running FastText in a
   container needs a Dockerfile change plus a mounted model file.
+
+### Guess ranking
+
+`rank` answers "out of every word we know, where does this guess sit?" — 1 is
+the answer itself, 2 is the closest other word. It is computed against a
+vocabulary file, so it is `null` until you configure one:
+
+```powershell
+$env:VOCABULARY_PATH = "C:/models/game_words.txt"
+uv run uvicorn app.main:app --reload
+```
+
+The file is UTF-8 (a BOM is tolerated), one word per line. Generate one with
+[`ml/scripts/extract_wiktionary_words.py`](../ml/scripts/extract_wiktionary_words.py);
+vocabulary files are data, so they are never committed.
+
+Notes:
+
+- The whole vocabulary is embedded **once, at startup**, for the same reason the
+  model is: a bad path should fail the server, not the first guess.
+- A guess outside the vocabulary gets `rank: null`. That is normal, not an
+  error — with a small word list, most guesses will.
+- The rank policy matches the ML harness's `build_rank_table` exactly: ties are
+  broken by word, ascending, and the answer is always rank 1. See
+  [`tests/test_ranking.py`](tests/test_ranking.py) for the parity tests.
+- Memory is roughly `vocabulary_size × dimension × 8` bytes for the matrix, plus
+  `RANK_CACHE_SIZE × vocabulary_size × 8` for cached answers. Nothing is stored
+  per game. Past a few hundred thousand words, switch the matrix to `float32`
+  (`VectorRankProvider(dtype=...)`).
 
 ### Optional FastText tests
 
@@ -143,16 +174,19 @@ app/
 ├─ schemas/           # Pydantic wire models (camelCase JSON)
 ├─ services/
 │  ├─ embedding/      # EmbeddingService Protocol + mock + FastText + factory
+│  ├─ ranking/        # RankProvider Protocol + null + vectorized + factory
 │  └─ game/           # GameRepository Protocol + in-memory store + GameService
 └─ domain/            # pure game logic — no FastAPI, no model
    ├─ game.py         # Game, Guess, GameStatus, word normalization
+   ├─ vocabulary.py   # vocabulary normalization + loading (matches ml/)
    └─ words.py        # placeholder answer words + AnswerSelector
 ```
 
 Request flow: `routes/games.py` → `GameService` → `Game` rules, with the
-`EmbeddingService` called only from the service layer. Storage, embeddings, and
-answer selection are all injected via [`api/deps.py`](app/api/deps.py), so tests
-substitute a fresh store and a pinned answer word.
+`EmbeddingService` and `RankProvider` called only from the service layer.
+Storage, embeddings, ranking, and answer selection are all injected via
+[`api/deps.py`](app/api/deps.py), so tests substitute a fresh store and a pinned
+answer word.
 
 ## Conventions
 

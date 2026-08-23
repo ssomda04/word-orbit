@@ -22,18 +22,25 @@ from app.core.config import Settings, get_settings
 from app.core.errors import AppError
 from app.schemas.errors import ErrorResponse
 from app.services.embedding import get_embedding_service
+from app.services.ranking import get_rank_provider
 
 
 @asynccontextmanager
 async def _lifespan(_: FastAPI) -> AsyncGenerator[None, None]:
-    """Build the embedding service before the first request is served.
+    """Build the embedding service and rank provider before serving anything.
 
     For the deterministic mock this is a sub-millisecond no-op. For a real model
     it is the difference between an 8-second first guess and a warm one, and it
     turns a bad `FASTTEXT_MODEL_PATH` into a loud startup failure instead of a
     500 that would not even match the documented error envelope.
+
+    The rank provider is warmed for the same reasons: with `VOCABULARY_PATH` set
+    it embeds the whole vocabulary, which must happen once at startup rather than
+    inside whichever request arrives first, and a bad path should fail loudly
+    here. Order matters — the provider embeds through the embedding service.
     """
     get_embedding_service()
+    get_rank_provider()
     yield
 
 

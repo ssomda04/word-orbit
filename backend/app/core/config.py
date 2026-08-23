@@ -44,6 +44,16 @@ class Settings(BaseSettings):
     # Populated only when a real model is selected (see docs/MODEL_EVALUATION.md).
     model_name: str = ""
 
+    # Absolute path to a UTF-8 word-per-line vocabulary. Guess ranks are computed
+    # relative to this word set; leave empty to disable ranking (`rank` stays
+    # null, which the API contract permits). Validated in the ranking factory,
+    # so a run without ranking never fails over a variable it does not use.
+    vocabulary_path: str = ""
+
+    # How many answers' vocabulary-wide similarity arrays to keep in memory.
+    # Cost is roughly `RANK_CACHE_SIZE * vocabulary_size * 8` bytes.
+    rank_cache_size: int = 32
+
     # Reserved for later phases (multiplayer / history). Empty = not configured.
     database_url: str = ""
     redis_url: str = ""

@@ -1,9 +1,10 @@
 """Single-player game use cases.
 
 Orchestration only: a ``GameRepository`` for storage, an ``EmbeddingService`` for
-scoring, an ``AnswerSelector`` for the hidden word — all injected, so tests can
-substitute fakes. Rules live in ``app.domain.game``; HTTP shaping lives in the
-router. This class knows nothing about status codes or response models.
+scoring, an ``AnswerSelector`` for the hidden word, a ``RankProvider`` for a
+guess's standing among all words — all injected, so tests can substitute fakes.
+Rules live in ``app.domain.game``; HTTP shaping lives in the router. This class
+knows nothing about status codes or response models.
 
 The answer word is read here only to score a guess, and is never logged.
 """
@@ -15,6 +16,7 @@ from app.domain.game import Game, Guess, normalize_word
 from app.domain.words import AnswerSelector
 from app.services.embedding import EmbeddingService
 from app.services.game.repository import GameRepository
+from app.services.ranking import RankProvider
 
 
 class GameService:
@@ -25,10 +27,12 @@ class GameService:
         repository: GameRepository,
         embedder: EmbeddingService,
         answer_selector: AnswerSelector,
+        rank_provider: RankProvider,
     ) -> None:
         self._repository = repository
         self._embedder = embedder
         self._select_answer = answer_selector
+        self._rank_provider = rank_provider
 
     def create_game(self) -> Game:
         """Start a game with a server-chosen answer."""
@@ -84,6 +88,10 @@ class GameService:
             word=word,
             similarity=similarity,
             created_at=self._now(),
+            # Computed once, when the guess is recorded. A replayed guess returns
+            # the stored result above, so a rank never changes after the fact
+            # even if the vocabulary behind the provider were swapped.
+            rank=self._rank_provider.rank_of(game.answer, word),
         )
         self._repository.save(game)
         return guess
