@@ -14,6 +14,7 @@ from app.domain.game import MAX_WORD_LENGTH, GameStatus
 from app.services.embedding import DeterministicEmbeddingService
 from app.services.game import GameService, InMemoryGameRepository
 from app.services.ranking import NullRankProvider
+from app.services.scoring import EmbeddingGuessScorer
 
 ANSWER = "사과"
 
@@ -48,11 +49,13 @@ def embedder() -> FakeEmbeddingService:
 def service(embedder: FakeEmbeddingService) -> GameService:
     return GameService(
         repository=InMemoryGameRepository(),
-        embedder=embedder,
-        answer_selector=lambda: ANSWER,
+        # The fake embedder is still the thing being called; it is reached
+        # through the scorer that production also uses, so `embedder.calls`
+        # below still records exactly what the service asked the model.
         # No vocabulary in these tests, so every rank is None — the default
         # wiring. Rank policy itself is covered in tests/test_ranking.py.
-        rank_provider=NullRankProvider(),
+        scorer=EmbeddingGuessScorer(embedder, NullRankProvider()),
+        answer_selector=lambda: ANSWER,
     )
 
 
@@ -203,9 +206,8 @@ def test_guesses_keep_submission_order(service: GameService) -> None:
 def real_service() -> GameService:
     return GameService(
         repository=InMemoryGameRepository(),
-        embedder=DeterministicEmbeddingService(),
+        scorer=EmbeddingGuessScorer(DeterministicEmbeddingService(), NullRankProvider()),
         answer_selector=lambda: ANSWER,
-        rank_provider=NullRankProvider(),
     )
 
 

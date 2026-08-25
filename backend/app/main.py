@@ -47,6 +47,10 @@ async def _lifespan(_: FastAPI) -> AsyncGenerator[None, None]:
     it embeds the whole vocabulary, which must happen once at startup rather than
     inside whichever request arrives first, and a bad path should fail loudly
     here. Order matters — the provider embeds through the embedding service.
+
+    The guess scorer is absent from this list on purpose. `EmbeddingGuessScorer`
+    holds nothing but references to these two, so warming it would warm nothing
+    that is not warmed already. A scorer that loads its own data belongs here.
     """
     get_embedding_service()
     get_rank_provider()

@@ -14,6 +14,7 @@ from app.domain.words import AnswerSelector, RandomAnswerSelector
 from app.services.embedding import EmbeddingService, get_embedding_service
 from app.services.game import GameRepository, GameService, InMemoryGameRepository
 from app.services.ranking import RankProvider, get_rank_provider
+from app.services.scoring import EmbeddingGuessScorer, GuessScorer
 
 
 def embedding_service() -> EmbeddingService:
@@ -54,18 +55,31 @@ AnswerSelectorDep = Annotated[AnswerSelector, Depends(answer_selector)]
 RankProviderDep = Annotated[RankProvider, Depends(rank_provider)]
 
 
+def guess_scorer(embedder: EmbeddingServiceDep, ranker: RankProviderDep) -> GuessScorer:
+    """Compose the scorer from the two process-wide seams it reads through.
+
+    Built per request rather than cached, for the same reason ``game_service``
+    is: it owns no state, so construction is a couple of attribute assignments.
+    Composing it from the *dependencies* — not from the module factories
+    directly — is what keeps `app.dependency_overrides[rank_provider]` (and the
+    embedding equivalent) reaching the guess path, as they always have.
+    """
+    return EmbeddingGuessScorer(embedder, ranker)
+
+
+GuessScorerDep = Annotated[GuessScorer, Depends(guess_scorer)]
+
+
 def game_service(
     repository: GameRepositoryDep,
-    embedder: EmbeddingServiceDep,
+    scorer: GuessScorerDep,
     selector: AnswerSelectorDep,
-    ranker: RankProviderDep,
 ) -> GameService:
     """Construct the service per request — cheap, since all state is in the store."""
     return GameService(
         repository=repository,
-        embedder=embedder,
+        scorer=scorer,
         answer_selector=selector,
-        rank_provider=ranker,
     )
 
 

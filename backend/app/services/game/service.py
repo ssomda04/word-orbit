@@ -1,10 +1,11 @@
 """Single-player game use cases.
 
-Orchestration only: a ``GameRepository`` for storage, an ``EmbeddingService`` for
-scoring, an ``AnswerSelector`` for the hidden word, a ``RankProvider`` for a
-guess's standing among all words — all injected, so tests can substitute fakes.
-Rules live in ``app.domain.game``; HTTP shaping lives in the router. This class
-knows nothing about status codes or response models.
+Orchestration only: a ``GameRepository`` for storage, an ``AnswerSelector`` for
+the hidden word, and a ``GuessScorer`` for what a guess is worth — all injected,
+so tests can substitute fakes. Rules live in ``app.domain.game``; HTTP shaping
+lives in the router. This class knows nothing about status codes or response
+models, and nothing about embeddings, vocabularies, or stored artifacts: it asks
+the scorer one question and records the answer.
 
 The answer word is read here only to score a guess, and is never logged.
 """
@@ -14,9 +15,8 @@ from datetime import UTC, datetime
 from app.core.errors import GameAlreadyFinishedError, GameNotFoundError
 from app.domain.game import Game, Guess, normalize_word
 from app.domain.words import AnswerSelector
-from app.services.embedding import EmbeddingService
 from app.services.game.repository import GameRepository
-from app.services.ranking import RankProvider
+from app.services.scoring import GuessScorer
 
 
 class GameService:
@@ -25,14 +25,12 @@ class GameService:
     def __init__(
         self,
         repository: GameRepository,
-        embedder: EmbeddingService,
+        scorer: GuessScorer,
         answer_selector: AnswerSelector,
-        rank_provider: RankProvider,
     ) -> None:
         self._repository = repository
-        self._embedder = embedder
+        self._scorer = scorer
         self._select_answer = answer_selector
-        self._rank_provider = rank_provider
 
     def create_game(self) -> Game:
         """Start a game with a server-chosen answer."""
@@ -82,16 +80,16 @@ class GameService:
         if existing is not None:
             return existing
 
-        similarity = self._embedder.similarity(word, game.answer)
+        # Scored once, when the guess is first recorded. A replayed guess returns
+        # the stored result above, so neither value changes after the fact even
+        # if the data behind the scorer were swapped.
+        score = self._scorer.score(game.answer, word)
         guess = game.record_guess(
             guess_id=self._repository.next_guess_id(game),
             word=word,
-            similarity=similarity,
+            similarity=score.similarity,
             created_at=self._now(),
-            # Computed once, when the guess is recorded. A replayed guess returns
-            # the stored result above, so a rank never changes after the fact
-            # even if the vocabulary behind the provider were swapped.
-            rank=self._rank_provider.rank_of(game.answer, word),
+            rank=score.rank,
         )
         self._repository.save(game)
         return guess
