@@ -123,15 +123,26 @@ class FastTextEmbeddingService:
         The failures below do not name the word. This method is called with the
         guess *and* with the hidden answer, and it cannot tell which it holds, so
         naming either would put the answer in a traceback and from there into the
-        server log (AGENTS.md). The cause is chained rather than interpolated,
-        for the same reason: the loader's own message is outside our control and
-        may quote its input.
+        server log (AGENTS.md).
+
+        Sanitizing our own message is not enough. This is the one place in the
+        request path where a secret word is handed to code we do not control, and
+        a native loader may quote its input in its own error. ``from exc`` would
+        keep that text as ``__cause__``, and ``traceback`` renders a cause — so
+        the word would reach the log anyway. The cause is therefore suppressed
+        with ``from None``, which also stops it being rendered by anything that
+        chains *this* exception further up, and the exception *type* is carried
+        across in its place: enough to tell a corrupt model from a bad call,
+        without quoting anything.
         """
         word = self._normalize(text)
         try:
             raw: Sequence[float] = self._model.get_word_vector(word)
         except Exception as exc:  # noqa: BLE001 - pybind11 raises broadly.
-            raise ValueError("FastText could not produce a vector for the requested word.") from exc
+            raise ValueError(
+                f"FastText could not produce a vector for the requested word "
+                f"({type(exc).__name__})."
+            ) from None
 
         vector = [float(value) for value in raw]
         if not vector:
