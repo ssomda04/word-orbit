@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build at most 50 provisional answer rank artifacts from a local FastText model."""
+"""Build a production-oriented provisional answer artifact root."""
 
 from __future__ import annotations
 
@@ -7,7 +7,6 @@ import argparse
 import csv
 import json
 import sys
-import time
 from pathlib import Path
 
 ML_ROOT = Path(__file__).resolve().parents[1]
@@ -20,30 +19,38 @@ from contextle_eval.rank_artifact import (
     DEFAULT_SEED,
     RankArtifactError,
     VocabularyIndex,
-    artifact_size_bytes,
     build_artifact,
     build_normalized_vector_matrix,
-    save_artifact_npy,
-    save_artifact_npz,
     select_benchmark_answers,
+    write_artifact_root,
 )
+from contextle_eval.rank_table import normalize_word
 
 DEFAULT_VOCABULARY = ML_ROOT / "data" / "game_words.txt"
 DEFAULT_POOL = ML_ROOT / "data" / "answer_pool_provisional.txt"
 DEFAULT_CANDIDATES = ML_ROOT / "data" / "answer_candidates_with_frequency_score.csv"
 DEFAULT_OUTPUT = ML_ROOT / "data" / "artifacts" / "provisional"
+DEFAULT_EMBEDDING_MODEL_NAME = "fasttext-cc-ko-300"
+DEFAULT_ANSWERS_LIMIT = 10
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Build 10 or 50 provisional rank artifacts.")
+    parser = argparse.ArgumentParser(description="Build a provisional rank artifact root.")
     parser.add_argument("--model-path", type=Path, required=True)
     parser.add_argument("--vocabulary", type=Path, default=DEFAULT_VOCABULARY)
     parser.add_argument("--answer-pool", type=Path, default=DEFAULT_POOL)
     parser.add_argument("--candidates", type=Path, default=DEFAULT_CANDIDATES)
-    parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT)
-    parser.add_argument("--count", type=int, choices=(10, 50), default=10)
-    parser.add_argument("--format", choices=("npy", "npz"), default="npy")
-    parser.add_argument("--similarity-dtype", choices=("float32", "float16"), default="float32")
+    parser.add_argument(
+        "--artifact-root",
+        "--output-dir",
+        dest="artifact_root",
+        type=Path,
+        default=DEFAULT_OUTPUT,
+    )
+    selection = parser.add_mutually_exclusive_group()
+    selection.add_argument("--answers-limit", type=int, choices=(10, 50))
+    selection.add_argument("--all-answers", action="store_true")
+    parser.add_argument("--embedding-model-name", default=DEFAULT_EMBEDDING_MODEL_NAME)
     parser.add_argument("--seed", type=int, default=DEFAULT_SEED)
     return parser.parse_args(argv)
 
@@ -58,43 +65,61 @@ def load_answer_rows(pool_path: Path, candidates_path: Path) -> list[tuple[str, 
     return [(word, by_word[word]) for word in pool]
 
 
+def select_answers(
+    answer_rows: list[tuple[str, str]],
+    *,
+    answers_limit: int | None,
+    all_answers: bool,
+    seed: int,
+) -> tuple[str, ...]:
+    """Select bounded benchmark answers unless the full pool is explicit."""
+    if answers_limit is not None and all_answers:
+        raise RankArtifactError("--answers-limit and --all-answers cannot be used together.")
+    if all_answers:
+        answers = tuple(word for word, _ in answer_rows)
+    else:
+        limit = answers_limit or DEFAULT_ANSWERS_LIMIT
+        answers = select_benchmark_answers(answer_rows, count=limit, seed=seed)
+    normalized = tuple(normalize_word(answer) for answer in answers)
+    if not normalized or any(not answer for answer in normalized):
+        raise RankArtifactError("Answer selection must contain non-empty words.")
+    if len(set(normalized)) != len(normalized):
+        raise RankArtifactError("Answer selection contains duplicate normalized answers.")
+    return normalized
+
+
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
-    if args.output_dir.exists() and any(args.output_dir.iterdir()):
-        print(f"Output directory must be new or empty: {args.output_dir}", file=sys.stderr)
+    if args.artifact_root.exists() and any(args.artifact_root.iterdir()):
+        print(f"Artifact root must be new or empty: {args.artifact_root}", file=sys.stderr)
         return 2
-    started = time.perf_counter()
     try:
         vocabulary = VocabularyIndex.from_file(args.vocabulary)
-        answers = select_benchmark_answers(
-            load_answer_rows(args.answer_pool, args.candidates), count=args.count, seed=args.seed
+        answers = select_answers(
+            load_answer_rows(args.answer_pool, args.candidates),
+            answers_limit=args.answers_limit,
+            all_answers=args.all_answers,
+            seed=args.seed,
         )
         provider = FastTextVectorProvider.load(args.model_path)
         matrix = build_normalized_vector_matrix(vocabulary, provider)
-        paths = []
-        for answer in answers:
-            artifact = build_artifact(
+        artifacts = (
+            build_artifact(
                 answer,
                 vocabulary,
                 matrix,
                 embedding_model=args.model_path.name,
-                similarity_dtype=args.similarity_dtype,
+                similarity_dtype="float32",
                 ranktable_compatibility_provider=provider,
             )
-            save = save_artifact_npy if args.format == "npy" else save_artifact_npz
-            paths.append(save(args.output_dir, artifact))
-        manifest = {
-            "seed": args.seed,
-            "answers": answers,
-            "count": len(answers),
-            "format": args.format,
-            "similarity_dtype": args.similarity_dtype,
-            "vocabulary_sha256": vocabulary.sha256,
-            "total_size_bytes": sum(artifact_size_bytes(path) for path in paths),
-            "elapsed_seconds": time.perf_counter() - started,
-        }
-        (args.output_dir / "manifest.json").write_text(
-            json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+            for answer in answers
+        )
+        manifest = write_artifact_root(
+            args.artifact_root,
+            vocabulary,
+            artifacts,
+            embedding_model_name=args.embedding_model_name,
+            embedding_model_source=args.model_path.name,
         )
     except (OSError, FastTextLoadError, RankArtifactError, ValueError) as exc:
         print(f"Rank artifact generation failed: {exc}", file=sys.stderr)
