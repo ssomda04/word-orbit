@@ -10,8 +10,11 @@ from zipfile import ZipFile
 import pytest
 from contextle_eval.modu_corpus import (
     ModuCorpusError,
+    iter_mp_sentences,
     iter_nxmp_sentences,
+    iter_sxmp_sentences,
     select_nxmp_entry,
+    select_sxmp_entry,
 )
 
 
@@ -34,16 +37,23 @@ def _sentence(**overrides: object) -> dict[str, object]:
     return value
 
 
-def _write_zip(tmp_path: Path, sentences: list[dict[str, object]], *, entry: str = "NXMP.json") -> Path:
+def _write_zip(
+    tmp_path: Path,
+    sentences: list[dict[str, object]],
+    *,
+    entry: str = "NXMP.json",
+    source_subtype: str = "NXMP",
+) -> Path:
     archive_path = tmp_path / "corpus.zip"
     payload = {
-        "id": "NXMP.test",
+        "id": f"{source_subtype}.test",
         "metadata": {"annotation_level": ["형태 분석"]},
-        "document": [{"id": "NXMP.test.1", "sentence": sentences}],
+        "document": [{"id": f"{source_subtype}.test.1", "sentence": sentences}],
     }
     with ZipFile(archive_path, "w") as archive:
         archive.writestr(entry, json.dumps(payload, ensure_ascii=False))
-        archive.writestr("SXMP.json", "{}")
+        other_subtype = "SXMP" if source_subtype == "NXMP" else "NXMP"
+        archive.writestr(f"{other_subtype}.json", "{}")
     return archive_path
 
 
@@ -70,6 +80,27 @@ def test_selects_only_nxmp_json_inside_zip(tmp_path: Path) -> None:
     archive_path = _write_zip(tmp_path, [_sentence()], entry="nested/NXMP2500.json")
     with ZipFile(archive_path) as archive:
         assert select_nxmp_entry(archive) == "nested/NXMP2500.json"
+
+
+def test_sxmp_uses_same_record_schema_and_distinct_subtype(tmp_path: Path) -> None:
+    sentence = _sentence(id="SXMP.test.1.1")
+    archive = _write_zip(
+        tmp_path,
+        [sentence],
+        entry="nested/SXMP2500.json",
+        source_subtype="SXMP",
+    )
+
+    with ZipFile(archive) as opened:
+        assert select_sxmp_entry(opened) == "nested/SXMP2500.json"
+    parsed = list(iter_sxmp_sentences(archive))
+    generic = list(iter_mp_sentences(archive, source_subtype="SXMP"))
+
+    assert parsed == generic
+    assert parsed[0].corpus_id == "SXMP.test"
+    assert parsed[0].records[0].source_subtype == "SXMP"
+    assert parsed[0].records[0].morpheme == "출장길"
+    assert parsed[0].records[0].pos == "NNG"
 
 
 def test_reports_missing_and_orphan_word_ids(tmp_path: Path) -> None:
@@ -102,6 +133,21 @@ def test_reports_position_order_and_duplicate_mp_id(tmp_path: Path) -> None:
     ]
 
 
+def test_reports_non_positive_and_missing_positions(tmp_path: Path) -> None:
+    sentence = _sentence(
+        MP=[
+            {"id": 1, "form": "출", "label": "NNG", "word_id": 1, "position": 0},
+            {"id": 2, "form": "장", "label": "NNG", "word_id": 1},
+        ]
+    )
+    parsed = next(iter_nxmp_sentences(_write_zip(tmp_path, [sentence])))
+
+    assert [issue.code for issue in parsed.issues] == [
+        "position_order",
+        "position_order",
+    ]
+
+
 @pytest.mark.parametrize("missing", ["id", "form", "word", "MP"])
 def test_rejects_missing_required_sentence_field(tmp_path: Path, missing: str) -> None:
     sentence = _sentence()
@@ -128,6 +174,22 @@ def test_rejects_sentence_without_document_id(tmp_path: Path) -> None:
 
     with pytest.raises(ModuCorpusError, match="document id"):
         list(iter_nxmp_sentences(archive_path))
+
+
+def test_rejects_empty_sentence_stream_and_mismatched_subtype(tmp_path: Path) -> None:
+    empty = _write_zip(tmp_path, [])
+    with pytest.raises(ModuCorpusError, match="contains no sentences"):
+        list(iter_nxmp_sentences(empty))
+
+    mismatch_path = tmp_path / "mismatch.zip"
+    payload = {
+        "id": "NXMP.test",
+        "document": [{"id": "NXMP.test.1", "sentence": [_sentence()]}],
+    }
+    with ZipFile(mismatch_path, "w") as archive:
+        archive.writestr("SXMP.json", json.dumps(payload, ensure_ascii=False))
+    with pytest.raises(ModuCorpusError, match="mismatched root id"):
+        list(iter_sxmp_sentences(mismatch_path))
 
 
 def test_output_is_deterministic_and_archive_is_unchanged(tmp_path: Path) -> None:

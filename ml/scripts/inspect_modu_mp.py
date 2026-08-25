@@ -5,7 +5,7 @@
 #   "ijson>=3.4,<4",
 # ]
 # ///
-"""Inspect a bounded NXMP sample directly inside a NIKL Modu ZIP."""
+"""Inspect a bounded NXMP or SXMP sample directly inside a NIKL Modu ZIP."""
 
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ SRC_ROOT = ML_ROOT / "src"
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
-from contextle_eval.modu_corpus import ModuCorpusError, iter_nxmp_sentences
+from contextle_eval.modu_corpus import ModuCorpusError, SourceSubtype, iter_mp_sentences
 
 DEFAULT_LIMIT = 100
 DEFAULT_SAMPLE_RECORDS = 50
@@ -36,22 +36,32 @@ def _positive_int(value: str) -> int:
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Stream and validate a bounded NXMP sample without extracting its ZIP."
+        description="Stream and validate a bounded MP sample without extracting its ZIP."
     )
     parser.add_argument("zip_path", type=Path)
+    parser.add_argument("--source-subtype", choices=("NXMP", "SXMP"), default="NXMP")
     parser.add_argument("--limit-sentences", type=_positive_int, default=DEFAULT_LIMIT)
     parser.add_argument("--sample-records", type=_positive_int, default=DEFAULT_SAMPLE_RECORDS)
     return parser.parse_args(argv)
 
 
-def inspect(zip_path: Path, limit_sentences: int, sample_size: int) -> dict[str, object]:
+def inspect(
+    zip_path: Path,
+    limit_sentences: int,
+    sample_size: int,
+    source_subtype: SourceSubtype = "NXMP",
+) -> dict[str, object]:
     pos_counts: Counter[str] = Counter()
     issue_counts: Counter[str] = Counter()
     samples: list[dict[str, object]] = []
     sentence_count = word_count = mp_count = 0
     corpus_id = ""
 
-    for sentence in iter_nxmp_sentences(zip_path, limit_sentences=limit_sentences):
+    for sentence in iter_mp_sentences(
+        zip_path,
+        source_subtype=source_subtype,
+        limit_sentences=limit_sentences,
+    ):
         corpus_id = sentence.corpus_id
         sentence_count += 1
         word_count += sentence.word_count
@@ -64,12 +74,18 @@ def inspect(zip_path: Path, limit_sentences: int, sample_size: int) -> dict[str,
 
     return {
         "corpus_id": corpus_id,
-        "source_subtype": "NXMP",
+        "source_subtype": source_subtype,
         "sentence_limit": limit_sentences,
         "parsed_sentences": sentence_count,
         "parsed_words": word_count,
         "parsed_mp": mp_count,
         "pos_distribution": dict(sorted(pos_counts.items())),
+        "top_pos": [
+            {"pos": pos, "count": count}
+            for pos, count in sorted(
+                pos_counts.items(), key=lambda item: (-item[1], item[0])
+            )[:20]
+        ],
         "orphan_word_id": issue_counts["orphan_word_id"],
         "missing_word_id": issue_counts["missing_word_id"],
         "position_anomalies": issue_counts["position_order"],
@@ -83,9 +99,14 @@ def inspect(zip_path: Path, limit_sentences: int, sample_size: int) -> dict[str,
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     try:
-        report = inspect(args.zip_path, args.limit_sentences, args.sample_records)
+        report = inspect(
+            args.zip_path,
+            args.limit_sentences,
+            args.sample_records,
+            args.source_subtype,
+        )
     except (ModuCorpusError, OSError) as exc:
-        print(f"NXMP inspection failed: {exc}", file=sys.stderr)
+        print(f"MP inspection failed: {exc}", file=sys.stderr)
         return 2
     print(json.dumps(report, ensure_ascii=False, indent=2))
     return 0

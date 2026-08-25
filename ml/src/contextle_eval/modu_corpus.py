@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, BinaryIO
+from typing import Any, BinaryIO, Literal
 from zipfile import BadZipFile, ZipFile
 
 try:
@@ -17,12 +17,12 @@ except ImportError as exc:  # pragma: no cover - exercised only in an incomplete
         "or install ijson>=3.4,<4."
     ) from exc
 
-NXMP_ENTRY_PREFIX = "NXMP"
-SOURCE_SUBTYPE = "NXMP"
+SourceSubtype = Literal["NXMP", "SXMP"]
+SOURCE_SUBTYPES: tuple[SourceSubtype, ...] = ("NXMP", "SXMP")
 
 
 class ModuCorpusError(ValueError):
-    """Raised when a Modu archive or NXMP record cannot be parsed safely."""
+    """Raised when a Modu MP archive or record cannot be parsed safely."""
 
 
 @dataclass(frozen=True)
@@ -37,7 +37,7 @@ class MorphemeRecord:
     morpheme: str
     pos: str
     position: int | None
-    source_subtype: str = SOURCE_SUBTYPE
+    source_subtype: SourceSubtype
 
 
 @dataclass(frozen=True)
@@ -64,44 +64,65 @@ class ParsedSentence:
     issues: tuple[ValidationIssue, ...]
 
 
-def select_nxmp_entry(archive: ZipFile) -> str:
-    """Return the archive's unique NXMP JSON entry without extracting it."""
+def select_mp_entry(archive: ZipFile, source_subtype: SourceSubtype) -> str:
+    """Return the archive's unique subtype JSON entry without extracting it."""
+    if source_subtype not in SOURCE_SUBTYPES:
+        raise ValueError(f"Unsupported MP source subtype: {source_subtype!r}")
     candidates = sorted(
         info.filename
         for info in archive.infolist()
         if not info.is_dir()
-        and Path(info.filename).name.startswith(NXMP_ENTRY_PREFIX)
+        and Path(info.filename).name.startswith(source_subtype)
         and info.filename.lower().endswith(".json")
     )
     if len(candidates) != 1:
         raise ModuCorpusError(
-            f"Expected exactly one NXMP JSON entry, found {len(candidates)}: {candidates}"
+            f"Expected exactly one {source_subtype} JSON entry, "
+            f"found {len(candidates)}: {candidates}"
         )
     return candidates[0]
 
 
-def iter_nxmp_sentences(
+def select_nxmp_entry(archive: ZipFile) -> str:
+    """Return the archive's unique NXMP JSON entry without extracting it."""
+    return select_mp_entry(archive, "NXMP")
+
+
+def select_sxmp_entry(archive: ZipFile) -> str:
+    """Return the archive's unique SXMP JSON entry without extracting it."""
+    return select_mp_entry(archive, "SXMP")
+
+
+def iter_mp_sentences(
     zip_path: Path,
     *,
+    source_subtype: SourceSubtype,
     limit_sentences: int | None = None,
     entry_name: str | None = None,
 ) -> Iterator[ParsedSentence]:
-    """Stream validated NXMP sentences directly from a ZIP entry.
+    """Stream validated NXMP or SXMP sentences directly from a ZIP entry.
 
     Only the current sentence object is materialized. The ZIP is never extracted,
     and neither the complete JSON document nor a complete corpus document is loaded.
     """
+    if source_subtype not in SOURCE_SUBTYPES:
+        raise ValueError(f"Unsupported MP source subtype: {source_subtype!r}")
     if limit_sentences is not None and limit_sentences < 1:
         raise ValueError("limit_sentences must be at least 1 or None")
 
     try:
         with ZipFile(zip_path, "r") as archive:
-            selected = entry_name or select_nxmp_entry(archive)
-            if not Path(selected).name.startswith(NXMP_ENTRY_PREFIX):
-                raise ModuCorpusError(f"Entry is not NXMP JSON: {selected}")
+            selected = entry_name or select_mp_entry(archive, source_subtype)
+            selected_name = Path(selected).name
+            if not selected_name.startswith(source_subtype) or not selected_name.lower().endswith(
+                ".json"
+            ):
+                raise ModuCorpusError(f"Entry is not {source_subtype} JSON: {selected}")
             try:
                 with archive.open(selected, "r") as stream:
-                    yield from _iter_sentence_stream(stream, limit_sentences)
+                    yield from _iter_sentence_stream(
+                        stream, limit_sentences, source_subtype
+                    )
             except KeyError as exc:
                 raise ModuCorpusError(f"ZIP entry not found: {selected}") from exc
     except FileNotFoundError as exc:
@@ -110,8 +131,40 @@ def iter_nxmp_sentences(
         raise ModuCorpusError(f"Invalid ZIP archive: {zip_path}") from exc
 
 
+def iter_nxmp_sentences(
+    zip_path: Path,
+    *,
+    limit_sentences: int | None = None,
+    entry_name: str | None = None,
+) -> Iterator[ParsedSentence]:
+    """Stream validated newspaper MP sentences using the shared parser."""
+    yield from iter_mp_sentences(
+        zip_path,
+        source_subtype="NXMP",
+        limit_sentences=limit_sentences,
+        entry_name=entry_name,
+    )
+
+
+def iter_sxmp_sentences(
+    zip_path: Path,
+    *,
+    limit_sentences: int | None = None,
+    entry_name: str | None = None,
+) -> Iterator[ParsedSentence]:
+    """Stream validated spoken-language MP sentences using the shared parser."""
+    yield from iter_mp_sentences(
+        zip_path,
+        source_subtype="SXMP",
+        limit_sentences=limit_sentences,
+        entry_name=entry_name,
+    )
+
+
 def _iter_sentence_stream(
-    stream: BinaryIO, limit_sentences: int | None
+    stream: BinaryIO,
+    limit_sentences: int | None,
+    source_subtype: SourceSubtype,
 ) -> Iterator[ParsedSentence]:
     corpus_id: str | None = None
     document_id: str | None = None
@@ -133,7 +186,14 @@ def _iter_sentence_stream(
                         raise ModuCorpusError(
                             "Encountered sentence before root id or document id."
                         )
-                    yield _parse_sentence(builder.value, corpus_id, document_id)
+                    if not corpus_id.startswith(source_subtype):
+                        raise ModuCorpusError(
+                            f"{source_subtype} entry has mismatched root id: "
+                            f"{corpus_id!r}."
+                        )
+                    yield _parse_sentence(
+                        builder.value, corpus_id, document_id, source_subtype
+                    )
                     yielded += 1
                     builder = None
                     if limit_sentences is not None and yielded >= limit_sentences:
@@ -151,12 +211,22 @@ def _iter_sentence_stream(
                 builder.event(event, value)
                 builder_depth = 1
     except ijson.JSONError as exc:
-        raise ModuCorpusError(f"Malformed NXMP JSON: {exc}") from exc
+        raise ModuCorpusError(f"Malformed {source_subtype} JSON: {exc}") from exc
 
     if builder is not None:
-        raise ModuCorpusError("Malformed NXMP JSON: incomplete sentence object.")
+        raise ModuCorpusError(
+            f"Malformed {source_subtype} JSON: incomplete sentence object."
+        )
     if corpus_id is None:
-        raise ModuCorpusError("NXMP root is missing non-empty string field 'id'.")
+        raise ModuCorpusError(
+            f"{source_subtype} root is missing non-empty string field 'id'."
+        )
+    if not corpus_id.startswith(source_subtype):
+        raise ModuCorpusError(
+            f"{source_subtype} entry has mismatched root id: {corpus_id!r}."
+        )
+    if yielded == 0:
+        raise ModuCorpusError(f"{source_subtype} entry contains no sentences.")
 
 
 def _required_string(raw: Mapping[str, Any], field: str, location: str) -> str:
@@ -178,7 +248,10 @@ def _optional_int(value: Any) -> int | None:
 
 
 def _parse_sentence(
-    raw: Any, corpus_id: str, document_id: str
+    raw: Any,
+    corpus_id: str,
+    document_id: str,
+    source_subtype: SourceSubtype,
 ) -> ParsedSentence:
     if not isinstance(raw, Mapping):
         raise ModuCorpusError("document[].sentence[] must contain objects.")
@@ -266,6 +339,7 @@ def _parse_sentence(
                 morpheme=morpheme,
                 pos=pos,
                 position=position,
+                source_subtype=source_subtype,
             )
         )
 
