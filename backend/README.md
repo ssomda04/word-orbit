@@ -175,6 +175,7 @@ app/
 ├─ services/
 │  ├─ embedding/      # EmbeddingService Protocol + mock + FastText + factory
 │  ├─ ranking/        # RankProvider Protocol + null + vectorized + factory
+│  ├─ scoring/        # GuessScorer Protocol + EmbeddingGuessScorer (similarity + rank)
 │  └─ game/           # GameRepository Protocol + in-memory store + GameService
 └─ domain/            # pure game logic — no FastAPI, no model
    ├─ game.py         # Game, Guess, GameStatus, word normalization
@@ -182,11 +183,18 @@ app/
    └─ words.py        # placeholder answer words + AnswerSelector
 ```
 
-Request flow: `routes/games.py` → `GameService` → `Game` rules, with the
-`EmbeddingService` and `RankProvider` called only from the service layer.
-Storage, embeddings, ranking, and answer selection are all injected via
+Request flow: `routes/games.py` → `GameService` → `Game` rules. `GameService`
+asks a single `GuessScorer` what a guess is worth and gets back both values;
+`EmbeddingGuessScorer` answers by calling the `EmbeddingService` and the
+`RankProvider`, which is why overriding either still changes what a guess
+scores. Storage, scoring, and answer selection are all injected via
 [`api/deps.py`](app/api/deps.py), so tests substitute a fresh store and a pinned
 answer word.
+
+The scoring seam exists so that similarity and rank can later come from one
+precomputed lookup instead of two live ones. Nothing about the current numbers
+changes: `EmbeddingGuessScorer` makes exactly the two calls `GameService` used
+to make itself.
 
 ## Conventions
 

@@ -42,7 +42,20 @@ All handled errors return HTTP 4xx/5xx with this envelope:
 
 Current codes: `INVALID_INPUT` (validation, 422) ✅ · `INVALID_WORD` (400) ✅ ·
 `GAME_NOT_FOUND` (404) ✅ · `GAME_ALREADY_FINISHED` (409) ✅ ·
-`ROOM_NOT_FOUND` 📅 · `INTERNAL_ERROR` 📅.
+`INTERNAL_ERROR` (500) ✅ · `ROOM_NOT_FOUND` 📅.
+
+`INTERNAL_ERROR` covers every failure the server did not plan for, so that a
+client parsing errors by `code` keeps working on exactly the responses it most
+needs to understand. Two properties are part of the contract:
+
+- **`message` is a fixed sentence, not the failure's own.** An unhandled
+  exception's message may carry a filesystem path, a model error, or the answer
+  word, so it is never forwarded. Two unrelated failures are indistinguishable
+  to a client — deliberately.
+- **`details` is always `null`.** There is no context here that is safe to send.
+
+The traceback is written to the server log instead. `INTERNAL_ERROR` is never a
+way for a client to learn why something broke; that is the operator's channel.
 
 `INVALID_INPUT` vs. `INVALID_WORD`: the former is schema validation (missing
 field, empty/whitespace-only `word`), the latter is a word the game cannot

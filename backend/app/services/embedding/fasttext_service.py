@@ -119,18 +119,36 @@ class FastTextEmbeddingService:
 
         FastText composes character n-grams, so an out-of-vocabulary word still
         gets a vector — that is intended, and no error or log is produced for it.
+
+        The failures below do not name the word. This method is called with the
+        guess *and* with the hidden answer, and it cannot tell which it holds, so
+        naming either would put the answer in a traceback and from there into the
+        server log (AGENTS.md).
+
+        Sanitizing our own message is not enough. This is the one place in the
+        request path where a secret word is handed to code we do not control, and
+        a native loader may quote its input in its own error. ``from exc`` would
+        keep that text as ``__cause__``, and ``traceback`` renders a cause — so
+        the word would reach the log anyway. The cause is therefore suppressed
+        with ``from None``, which also stops it being rendered by anything that
+        chains *this* exception further up, and the exception *type* is carried
+        across in its place: enough to tell a corrupt model from a bad call,
+        without quoting anything.
         """
         word = self._normalize(text)
         try:
             raw: Sequence[float] = self._model.get_word_vector(word)
         except Exception as exc:  # noqa: BLE001 - pybind11 raises broadly.
-            raise ValueError(f"FastText could not produce a vector for {word!r}: {exc}") from exc
+            raise ValueError(
+                f"FastText could not produce a vector for the requested word "
+                f"({type(exc).__name__})."
+            ) from None
 
         vector = [float(value) for value in raw]
         if not vector:
-            raise ValueError(f"FastText returned an empty vector for {word!r}.")
+            raise ValueError("FastText returned an empty vector for the requested word.")
         if any(not math.isfinite(value) for value in vector):
-            raise ValueError(f"FastText returned a non-finite vector for {word!r}.")
+            raise ValueError("FastText returned a non-finite vector for the requested word.")
         return vector
 
     def encode(self, text: str) -> list[float]:

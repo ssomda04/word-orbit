@@ -206,18 +206,30 @@ class VectorRankProvider:
         return similarities
 
     def _compute_similarities(self, answer: str) -> np.ndarray:
+        """Embed the answer and score it against the whole vocabulary.
+
+        None of the failures below name the answer. They are raised while a game
+        is in progress, and an unhandled exception's message reaches the server
+        log through the traceback — which would put the hidden word there
+        (AGENTS.md: the answer is never logged). The word adds nothing anyway:
+        every one of these says the model is broken, not that some particular
+        input was unusual. The cause is chained, so the underlying error and its
+        stack are still in the traceback.
+        """
         try:
             raw = self._embedder.encode(answer)
         except Exception as exc:
             raise RankingError(
-                f"Embedding model could not produce a vector for {answer!r}: {exc}"
+                "Embedding model could not produce a vector for the ranking answer."
             ) from exc
         if len(raw) == 0:
-            raise RankingError(f"Embedding model returned an empty vector for {answer!r}.")
+            raise RankingError("Embedding model returned an empty vector for the ranking answer.")
         if len(raw) != self._dimension:
+            # Sizes are structural, not content: they identify the mismatch
+            # without identifying the word.
             raise RankingError(
-                f"Embedding vector dimensions differ: first={self._dimension}, "
-                f"second={len(raw)} (at {answer!r})."
+                f"Embedding vector dimensions differ: vocabulary={self._dimension}, "
+                f"ranking answer={len(raw)}."
             )
 
         vector = np.asarray(raw, dtype=self._dtype)

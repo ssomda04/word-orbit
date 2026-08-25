@@ -7,6 +7,7 @@ Run locally:
     uv run uvicorn app.main:app --reload
 """
 
+import logging
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
@@ -24,6 +25,14 @@ from app.schemas.errors import ErrorResponse
 from app.services.embedding import get_embedding_service
 from app.services.ranking import get_rank_provider
 
+logger = logging.getLogger(__name__)
+
+# Fixed and deliberately uninformative. An unhandled exception carries whatever
+# its raiser put in the message — a filesystem path, a model error, the answer
+# word (`app.services.ranking.vector` interpolates it) — none of which may reach
+# a client. The traceback goes to the log; the client gets this sentence.
+INTERNAL_ERROR_MESSAGE = "서버에 예기치 못한 오류가 발생했습니다."
+
 
 @asynccontextmanager
 async def _lifespan(_: FastAPI) -> AsyncGenerator[None, None]:
@@ -38,6 +47,10 @@ async def _lifespan(_: FastAPI) -> AsyncGenerator[None, None]:
     it embeds the whole vocabulary, which must happen once at startup rather than
     inside whichever request arrives first, and a bad path should fail loudly
     here. Order matters — the provider embeds through the embedding service.
+
+    The guess scorer is absent from this list on purpose. `EmbeddingGuessScorer`
+    holds nothing but references to these two, so warming it would warm nothing
+    that is not warmed already. A scorer that loads its own data belongs here.
     """
     get_embedding_service()
     get_rank_provider()
@@ -88,6 +101,35 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 code=exc.code,
                 message=exc.message,
                 details=exc.details,
+            ).model_dump(mode="json"),
+        )
+
+    # Last line of defence. Without it Starlette answers an unhandled exception
+    # with `{"detail": "Internal Server Error"}`, which is not the documented
+    # envelope, so a client parsing errors by `code` would break on exactly the
+    # responses it most needs to understand. Registering a handler for
+    # `Exception` installs it on Starlette's ServerErrorMiddleware, which sends
+    # this response and then re-raises so the server still logs the failure.
+    @app.exception_handler(Exception)
+    async def _unhandled_error_handler(request: Request, _: Exception) -> JSONResponse:
+        # Method and path only: the path holds a gameId, never a guess or the
+        # answer. The exception itself is rendered by `exception()` into the log
+        # (traceback included) and never into the response.
+        logger.exception(
+            "Unhandled exception while handling %s %s; returning INTERNAL_ERROR.",
+            request.method,
+            request.url.path,
+        )
+        return JSONResponse(
+            # `AppError` already declares this code/status as its base defaults,
+            # so the catch-all and an explicitly raised `AppError` cannot drift.
+            status_code=AppError.status_code,
+            content=ErrorResponse(
+                code=AppError.code,
+                message=INTERNAL_ERROR_MESSAGE,
+                # Always null: `details` is context for the client, and there is
+                # no context here that is safe to share.
+                details=None,
             ).model_dump(mode="json"),
         )
 
