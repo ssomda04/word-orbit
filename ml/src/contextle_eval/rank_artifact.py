@@ -7,7 +7,7 @@ import json
 import os
 import time
 from collections import defaultdict
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -24,7 +24,15 @@ from contextle_eval.rank_table import (
 )
 
 SCHEMA_VERSION = "1.0.0-prototype"
+ARTIFACT_ROOT_SCHEMA_VERSION = "1.0"
+ARTIFACT_ID_ALGORITHM = "sha256-nfkc-utf8"
 RANKING_POLICY = "answer_rank_1_then_cosine_desc_lexical_tiebreak"
+ARTIFACT_ROOT_RANKING_POLICY = {
+    "metric": "cosine",
+    "answer_rank": 1,
+    "order": "similarity_desc",
+    "tie_break": "lexical",
+}
 DEFAULT_SEED = 20260823
 SUPPORTED_SIMILARITY_DTYPES = frozenset({"float32", "float16"})
 RANKTABLE_REFINEMENT_EPSILON = 1e-7
@@ -82,7 +90,7 @@ def rank_dtype_for_size(vocabulary_size: int) -> np.dtype[Any]:
     """Return the smallest unsigned dtype that represents ranks 1..N."""
     if vocabulary_size < 1:
         raise RankArtifactError("Vocabulary size must be positive.")
-    for dtype in (np.uint8, np.uint16, np.uint32, np.uint64):
+    for dtype in (np.uint16, np.uint32, np.uint64):
         if vocabulary_size <= np.iinfo(dtype).max:
             return np.dtype(dtype)
     raise RankArtifactError("Vocabulary is too large for uint64 ranks.")
@@ -272,14 +280,27 @@ def validate_artifact(artifact: RankArtifact, vocabulary: VocabularyIndex) -> No
         raise RankArtifactError("Artifact ranks must be unique and continuous from 1..N.")
 
 
-def _safe_answer_name(answer: str) -> str:
-    digest = hashlib.sha256(answer.encode("utf-8")).hexdigest()[:12]
-    return f"{answer}-{digest}"
+def artifact_id_for_answer(answer: str) -> str:
+    """Return the deterministic, answer-hiding artifact identifier."""
+    normalized = normalize_word(answer)
+    if not normalized:
+        raise RankArtifactError("Artifact answer must not be empty after normalization.")
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+
+
+def artifact_relative_directory(answer: str) -> Path:
+    """Return ``artifacts/<prefix>/<full sha256>`` for a normalized answer."""
+    artifact_id = artifact_id_for_answer(answer)
+    return Path("artifacts") / artifact_id[:2] / artifact_id
 
 
 def save_artifact_npy(directory: Path, artifact: RankArtifact) -> Path:
-    """Save metadata and two mmap-friendly uncompressed .npy arrays."""
-    target = directory / _safe_answer_name(str(artifact.metadata["answer"]))
+    """Save a legacy standalone artifact for benchmark compatibility.
+
+    Production generation uses :func:`write_artifact_root`; this standalone
+    representation retains metadata only so the existing benchmark can load it.
+    """
+    target = directory / artifact_id_for_answer(str(artifact.metadata["answer"]))
     if target.exists():
         raise RankArtifactError(f"Artifact directory already exists: {target}")
     target.mkdir(parents=True)
@@ -295,7 +316,7 @@ def save_artifact_npy(directory: Path, artifact: RankArtifact) -> Path:
 def save_artifact_npz(directory: Path, artifact: RankArtifact) -> Path:
     """Save one compressed .npz containing arrays and UTF-8 JSON metadata."""
     directory.mkdir(parents=True, exist_ok=True)
-    target = directory / f"{_safe_answer_name(str(artifact.metadata['answer']))}.npz"
+    target = directory / f"{artifact_id_for_answer(str(artifact.metadata['answer']))}.npz"
     if target.exists():
         raise RankArtifactError(f"Artifact file already exists: {target}")
     metadata = json.dumps(dict(artifact.metadata), ensure_ascii=False, separators=(",", ":"))
@@ -304,9 +325,9 @@ def save_artifact_npz(directory: Path, artifact: RankArtifact) -> Path:
 
 
 def load_artifact_npy(
-    directory: Path, vocabulary: VocabularyIndex, *, mmap: bool = True
+    directory: Path, vocabulary: VocabularyIndex, *, mmap: bool = False
 ) -> RankArtifact:
-    """Load an .npy directory, rejecting a mismatched canonical vocabulary."""
+    """Load a legacy .npy directory, using ordinary in-memory arrays by default."""
     try:
         metadata = json.loads((directory / "metadata.json").read_text(encoding="utf-8"))
         mode = "r" if mmap else None
@@ -331,6 +352,217 @@ def load_artifact_npz(path: Path, vocabulary: VocabularyIndex) -> RankArtifact:
     artifact = RankArtifact(metadata, similarities, ranks)
     validate_artifact(artifact, vocabulary)
     return artifact
+
+
+def _vocabulary_payload(vocabulary: VocabularyIndex) -> bytes:
+    return "".join(f"{word}\n" for word in vocabulary.words).encode("utf-8")
+
+
+def write_artifact_root(
+    root: Path,
+    vocabulary: VocabularyIndex,
+    artifacts: Iterable[RankArtifact],
+    *,
+    embedding_model_name: str,
+    embedding_model_source: str,
+) -> dict[str, Any]:
+    """Write the production artifact-root contract without per-answer metadata."""
+    if not embedding_model_name.strip() or not embedding_model_source.strip():
+        raise RankArtifactError("Embedding model name and source must not be blank.")
+    if root.exists() and any(root.iterdir()):
+        raise RankArtifactError(f"Artifact root must be new or empty: {root}")
+
+    root.mkdir(parents=True, exist_ok=True)
+    vocabulary_payload = _vocabulary_payload(vocabulary)
+    vocabulary_path = root / "vocabulary.txt"
+    vocabulary_path.write_bytes(vocabulary_payload)
+    vocabulary_sha256 = hashlib.sha256(vocabulary_payload).hexdigest()
+    if vocabulary_sha256 != vocabulary.sha256:
+        raise RankArtifactError("Written vocabulary hash differs from the canonical vocabulary.")
+
+    answer_entries: dict[str, dict[str, Any]] = {}
+    similarity_dtype: str | None = None
+    rank_dtype: str | None = None
+    for artifact in artifacts:
+        validate_artifact(artifact, vocabulary)
+        answer = normalize_word(str(artifact.metadata.get("answer", "")))
+        if not answer:
+            raise RankArtifactError("Artifact metadata is missing a canonical answer.")
+        if answer in answer_entries:
+            raise RankArtifactError(f"Duplicate normalized answer: {answer!r}")
+        current_similarity_dtype = artifact.similarities.dtype.name
+        current_rank_dtype = artifact.ranks.dtype.name
+        similarity_dtype = similarity_dtype or current_similarity_dtype
+        rank_dtype = rank_dtype or current_rank_dtype
+        if (
+            current_similarity_dtype != similarity_dtype
+            or current_rank_dtype != rank_dtype
+        ):
+            raise RankArtifactError("All artifacts in one root must use the same dtypes.")
+        artifact_id = artifact_id_for_answer(answer)
+        relative_directory = artifact_relative_directory(answer)
+        target = root / relative_directory
+        target.mkdir(parents=True, exist_ok=False)
+        similarity_relative = relative_directory / "similarity.npy"
+        rank_relative = relative_directory / "rank.npy"
+        np.save(root / similarity_relative, artifact.similarities, allow_pickle=False)
+        np.save(root / rank_relative, artifact.ranks, allow_pickle=False)
+        answer_entries[answer] = {
+            "artifact_id": artifact_id,
+            "answer_vocab_index": int(artifact.metadata["answer_vocab_index"]),
+            "similarity_path": similarity_relative.as_posix(),
+            "rank_path": rank_relative.as_posix(),
+        }
+
+    if not answer_entries or similarity_dtype is None or rank_dtype is None:
+        raise RankArtifactError("Artifact root must contain at least one answer.")
+
+    manifest: dict[str, Any] = {
+        "schema_version": ARTIFACT_ROOT_SCHEMA_VERSION,
+        "embedding_model": {
+            "name": embedding_model_name,
+            "source": embedding_model_source,
+        },
+        "vocabulary": {
+            "path": "vocabulary.txt",
+            "size": len(vocabulary.words),
+            "sha256": vocabulary_sha256,
+        },
+        "similarity_dtype": similarity_dtype,
+        "rank_dtype": rank_dtype,
+        "artifact_id_algorithm": ARTIFACT_ID_ALGORITHM,
+        "ranking_policy": dict(ARTIFACT_ROOT_RANKING_POLICY),
+        "answers": answer_entries,
+    }
+    (root / "manifest.json").write_text(
+        json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    return manifest
+
+
+def load_artifact_root_manifest(root: Path) -> tuple[dict[str, Any], VocabularyIndex]:
+    """Load and validate authoritative root metadata and canonical vocabulary."""
+    manifest_path = root / "manifest.json"
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise RankArtifactError(f"Could not load artifact manifest {manifest_path}: {exc}") from exc
+    if not isinstance(manifest, dict):
+        raise RankArtifactError("Artifact manifest root must be an object.")
+    if manifest.get("schema_version") != ARTIFACT_ROOT_SCHEMA_VERSION:
+        raise RankArtifactError("Unsupported artifact-root schema version.")
+    if manifest.get("artifact_id_algorithm") != ARTIFACT_ID_ALGORITHM:
+        raise RankArtifactError("Unsupported artifact id algorithm.")
+    if manifest.get("ranking_policy") != ARTIFACT_ROOT_RANKING_POLICY:
+        raise RankArtifactError("Unsupported ranking policy.")
+    embedding_model = manifest.get("embedding_model")
+    if not isinstance(embedding_model, dict) or any(
+        not isinstance(embedding_model.get(field), str)
+        or not embedding_model[field].strip()
+        for field in ("name", "source")
+    ):
+        raise RankArtifactError("Manifest embedding model metadata is invalid.")
+
+    vocabulary_metadata = manifest.get("vocabulary")
+    if not isinstance(vocabulary_metadata, dict):
+        raise RankArtifactError("Manifest vocabulary metadata must be an object.")
+    if vocabulary_metadata.get("path") != "vocabulary.txt":
+        raise RankArtifactError("Manifest vocabulary path must be vocabulary.txt.")
+    vocabulary_path = root / "vocabulary.txt"
+    try:
+        payload = vocabulary_path.read_bytes()
+        decoded = payload.decode("utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
+        raise RankArtifactError(f"Could not read canonical vocabulary: {exc}") from exc
+    vocabulary = VocabularyIndex.create(decoded.splitlines())
+    if payload != _vocabulary_payload(vocabulary):
+        raise RankArtifactError("vocabulary.txt is not canonical NFKC+strip UTF-8 line data.")
+    if vocabulary_metadata.get("size") != len(vocabulary.words):
+        raise RankArtifactError("Manifest vocabulary size does not match vocabulary.txt.")
+    actual_hash = hashlib.sha256(payload).hexdigest()
+    if vocabulary_metadata.get("sha256") != actual_hash:
+        raise RankArtifactError("Manifest vocabulary hash does not match vocabulary.txt.")
+
+    try:
+        similarity_dtype = np.dtype(manifest["similarity_dtype"])
+        rank_dtype = np.dtype(manifest["rank_dtype"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise RankArtifactError("Manifest contains a missing or invalid dtype.") from exc
+    if similarity_dtype.kind != "f" or rank_dtype.kind != "u":
+        raise RankArtifactError("Manifest dtypes must be floating similarity and unsigned rank.")
+    if not isinstance(manifest.get("answers"), dict):
+        raise RankArtifactError("Manifest answers must be an object.")
+    return manifest, vocabulary
+
+
+def load_artifact_root_answer(
+    root: Path,
+    answer: str,
+    *,
+    manifest: Mapping[str, Any] | None = None,
+    vocabulary: VocabularyIndex | None = None,
+) -> RankArtifact:
+    """Load one answer with ordinary ``np.load`` and validate the root contract."""
+    if manifest is None or vocabulary is None:
+        loaded_manifest, loaded_vocabulary = load_artifact_root_manifest(root)
+        manifest = loaded_manifest
+        vocabulary = loaded_vocabulary
+    normalized_answer = normalize_word(answer)
+    answer_metadata = manifest["answers"].get(normalized_answer)
+    if not isinstance(answer_metadata, dict):
+        raise RankArtifactError(f"Answer is missing from artifact manifest: {answer!r}")
+
+    artifact_id = artifact_id_for_answer(normalized_answer)
+    expected_directory = artifact_relative_directory(normalized_answer)
+    expected_similarity = (expected_directory / "similarity.npy").as_posix()
+    expected_rank = (expected_directory / "rank.npy").as_posix()
+    if answer_metadata.get("artifact_id") != artifact_id:
+        raise RankArtifactError("Manifest answer artifact id is invalid.")
+    if answer_metadata.get("similarity_path") != expected_similarity:
+        raise RankArtifactError("Manifest similarity path is not the canonical hash-only path.")
+    if answer_metadata.get("rank_path") != expected_rank:
+        raise RankArtifactError("Manifest rank path is not the canonical hash-only path.")
+
+    try:
+        similarities = np.load(root / expected_similarity, allow_pickle=False)
+        ranks = np.load(root / expected_rank, allow_pickle=False)
+    except (OSError, ValueError) as exc:
+        raise RankArtifactError(f"Could not load answer artifact {artifact_id}: {exc}") from exc
+    size = len(vocabulary.words)
+    if similarities.shape != (size,) or ranks.shape != (size,):
+        raise RankArtifactError("Artifact arrays do not match manifest vocabulary size.")
+    if similarities.dtype.name != manifest.get("similarity_dtype"):
+        raise RankArtifactError("Similarity array dtype does not match manifest.")
+    if ranks.dtype.name != manifest.get("rank_dtype"):
+        raise RankArtifactError("Rank array dtype does not match manifest.")
+    answer_index = answer_metadata.get("answer_vocab_index")
+    if not isinstance(answer_index, int) or vocabulary.index_of(normalized_answer) != answer_index:
+        raise RankArtifactError("Manifest answer vocabulary index is invalid.")
+
+    legacy_metadata = {
+        "schema_version": SCHEMA_VERSION,
+        "vocabulary_size": size,
+        "vocabulary_sha256": vocabulary.sha256,
+        "answer": normalized_answer,
+        "answer_vocab_index": answer_index,
+        "similarity_dtype": similarities.dtype.name,
+        "rank_dtype": ranks.dtype.name,
+        "ranking_policy": RANKING_POLICY,
+    }
+    artifact = RankArtifact(legacy_metadata, similarities, ranks)
+    validate_artifact(artifact, vocabulary)
+    return artifact
+
+
+def validate_artifact_root(root: Path) -> dict[str, Any]:
+    """Validate every answer mapping and array in an artifact root."""
+    manifest, vocabulary = load_artifact_root_manifest(root)
+    for answer in manifest["answers"]:
+        load_artifact_root_answer(
+            root, answer, manifest=manifest, vocabulary=vocabulary
+        )
+    return manifest
 
 
 def artifact_size_bytes(path: Path) -> int:

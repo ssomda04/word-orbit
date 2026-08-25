@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import random
@@ -14,12 +15,19 @@ from contextle_eval.fasttext_provider import FastTextVectorProvider
 from contextle_eval.rank_artifact import (
     RankArtifactError,
     VocabularyIndex,
+    artifact_id_for_answer,
+    artifact_relative_directory,
     build_artifact,
     build_normalized_vector_matrix,
     load_artifact_npy,
     load_artifact_npz,
+    load_artifact_root_answer,
+    load_artifact_root_manifest,
+    rank_dtype_for_size,
     save_artifact_npy,
     save_artifact_npz,
+    validate_artifact_root,
+    write_artifact_root,
 )
 from contextle_eval.rank_table import build_rank_table
 
@@ -104,6 +112,136 @@ def test_float16_keeps_authoritative_rank_and_answer_rank_one() -> None:
     assert artifact.similarities.dtype == np.float16
     assert artifact.ranks[vocabulary.index_of("정답")] == 1
     assert len(np.unique(artifact.ranks)) == len(vocabulary.words)
+
+
+def _write_root(tmp_path: Path, *, name: str = "root") -> tuple[Path, VocabularyIndex]:
+    vocabulary, provider = _fixture()
+    matrix = build_normalized_vector_matrix(vocabulary, provider)
+    artifacts = [
+        build_artifact(answer, vocabulary, matrix, embedding_model="fake")
+        for answer in ("정답", "가")
+    ]
+    root = tmp_path / name
+    write_artifact_root(
+        root,
+        vocabulary,
+        artifacts,
+        embedding_model_name="fasttext-cc-ko-300",
+        embedding_model_source="cc.ko.300.bin",
+    )
+    return root, vocabulary
+
+
+def test_artifact_root_contract_and_normal_numpy_load(tmp_path: Path) -> None:
+    root, vocabulary = _write_root(tmp_path)
+    manifest = validate_artifact_root(root)
+    vocabulary_payload = (root / "vocabulary.txt").read_bytes()
+
+    assert vocabulary_payload.decode("utf-8").splitlines() == list(vocabulary.words)
+    assert manifest["vocabulary"] == {
+        "path": "vocabulary.txt",
+        "size": len(vocabulary.words),
+        "sha256": hashlib.sha256(vocabulary_payload).hexdigest(),
+    }
+    assert manifest["similarity_dtype"] == "float32"
+    assert manifest["rank_dtype"] == "uint16"
+    loaded = load_artifact_root_answer(root, " 정답 ")
+    assert type(loaded.similarities) is np.ndarray
+    assert type(loaded.ranks) is np.ndarray
+    assert loaded.lookup("정답", vocabulary) == pytest.approx((1.0, 1))
+
+
+def test_artifact_paths_are_deterministic_hash_only(tmp_path: Path) -> None:
+    root, _ = _write_root(tmp_path)
+    manifest, _ = load_artifact_root_manifest(root)
+    expected_id = hashlib.sha256("정답".encode()).hexdigest()
+    answer = manifest["answers"]["정답"]
+
+    assert artifact_id_for_answer("  정답  ") == expected_id
+    assert artifact_relative_directory("정답") == (
+        Path("artifacts") / expected_id[:2] / expected_id
+    )
+    assert answer["artifact_id"] == expected_id
+    assert answer["similarity_path"] == (
+        f"artifacts/{expected_id[:2]}/{expected_id}/similarity.npy"
+    )
+    assert "정답" not in answer["similarity_path"]
+    artifact_directory = root / "artifacts" / expected_id[:2] / expected_id
+    assert sorted(path.name for path in artifact_directory.iterdir()) == [
+        "rank.npy",
+        "similarity.npy",
+    ]
+
+
+def test_manifest_generation_is_deterministic(tmp_path: Path) -> None:
+    first, _ = _write_root(tmp_path, name="first")
+    second, _ = _write_root(tmp_path, name="second")
+
+    assert (first / "manifest.json").read_bytes() == (
+        second / "manifest.json"
+    ).read_bytes()
+    assert (first / "vocabulary.txt").read_bytes() == (second / "vocabulary.txt").read_bytes()
+
+
+def test_rank_dtype_scales_beyond_uint16() -> None:
+    assert rank_dtype_for_size(65_535) == np.dtype(np.uint16)
+    synthetic_vocabulary = VocabularyIndex.create(
+        [f"word-{index}" for index in range(65_536)]
+    )
+    assert rank_dtype_for_size(len(synthetic_vocabulary.words)) == np.dtype(np.uint32)
+    assert rank_dtype_for_size(np.iinfo(np.uint32).max + 1) == np.dtype(np.uint64)
+
+
+def test_duplicate_answer_is_rejected(tmp_path: Path) -> None:
+    vocabulary, provider = _fixture()
+    matrix = build_normalized_vector_matrix(vocabulary, provider)
+    artifact = build_artifact("정답", vocabulary, matrix, embedding_model="fake")
+
+    with pytest.raises(RankArtifactError, match="Duplicate normalized answer"):
+        write_artifact_root(
+            tmp_path / "root",
+            vocabulary,
+            [artifact, artifact],
+            embedding_model_name="fake",
+            embedding_model_source="fake.bin",
+        )
+
+
+@pytest.mark.parametrize("content", [None, "{not-json", "[]"])
+def test_missing_or_corrupt_manifest_is_rejected(tmp_path: Path, content: str | None) -> None:
+    root = tmp_path / "root"
+    root.mkdir()
+    if content is not None:
+        (root / "manifest.json").write_text(content, encoding="utf-8")
+
+    with pytest.raises(RankArtifactError, match="manifest|Manifest"):
+        load_artifact_root_manifest(root)
+
+
+def test_corrupt_vocabulary_hash_array_length_and_dtype_are_rejected(
+    tmp_path: Path,
+) -> None:
+    root, _ = _write_root(tmp_path)
+    manifest_path = root / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["vocabulary"]["sha256"] = "0" * 64
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    with pytest.raises(RankArtifactError, match="hash"):
+        load_artifact_root_manifest(root)
+
+    root, _ = _write_root(tmp_path, name="wrong-length")
+    manifest, _ = load_artifact_root_manifest(root)
+    path = root / manifest["answers"]["정답"]["rank_path"]
+    np.save(path, np.asarray([1], dtype=np.uint16), allow_pickle=False)
+    with pytest.raises(RankArtifactError, match="size"):
+        load_artifact_root_answer(root, "정답")
+
+    root, _ = _write_root(tmp_path, name="wrong-dtype")
+    manifest, _ = load_artifact_root_manifest(root)
+    path = root / manifest["answers"]["정답"]["rank_path"]
+    np.save(path, np.arange(1, 6, dtype=np.uint32), allow_pickle=False)
+    with pytest.raises(RankArtifactError, match="dtype"):
+        load_artifact_root_answer(root, "정답")
 
 
 def test_real_fasttext_artifact_matches_ranktable() -> None:
