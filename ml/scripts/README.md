@@ -14,3 +14,8 @@ Each experiment script should:
 Data preparation scripts are deterministic and do not need a meaningless seed.
 `extract_wiktionary_words.py` streams the official Korean Wiktionary bz2 dump;
 see [`../data/README.md`](../data/README.md) for its invocation and output policy.
+`build_answer_candidates.py` reuses that dump and vocabulary to create an ignored
+CSV for human answer-pool review; it does not create a final answer pool.
+`analyze_answer_frequency.py` joins a caller-supplied real corpus-frequency CSV,
+writes an ignored analysis CSV, and prints distribution and coverage statistics;
+it never imputes missing frequency or selects an answer-pool cutoff.
