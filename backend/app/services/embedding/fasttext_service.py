@@ -119,18 +119,25 @@ class FastTextEmbeddingService:
 
         FastText composes character n-grams, so an out-of-vocabulary word still
         gets a vector — that is intended, and no error or log is produced for it.
+
+        The failures below do not name the word. This method is called with the
+        guess *and* with the hidden answer, and it cannot tell which it holds, so
+        naming either would put the answer in a traceback and from there into the
+        server log (AGENTS.md). The cause is chained rather than interpolated,
+        for the same reason: the loader's own message is outside our control and
+        may quote its input.
         """
         word = self._normalize(text)
         try:
             raw: Sequence[float] = self._model.get_word_vector(word)
         except Exception as exc:  # noqa: BLE001 - pybind11 raises broadly.
-            raise ValueError(f"FastText could not produce a vector for {word!r}: {exc}") from exc
+            raise ValueError("FastText could not produce a vector for the requested word.") from exc
 
         vector = [float(value) for value in raw]
         if not vector:
-            raise ValueError(f"FastText returned an empty vector for {word!r}.")
+            raise ValueError("FastText returned an empty vector for the requested word.")
         if any(not math.isfinite(value) for value in vector):
-            raise ValueError(f"FastText returned a non-finite vector for {word!r}.")
+            raise ValueError("FastText returned a non-finite vector for the requested word.")
         return vector
 
     def encode(self, text: str) -> list[float]:
