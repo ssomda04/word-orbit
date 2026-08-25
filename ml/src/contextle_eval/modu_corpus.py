@@ -32,6 +32,7 @@ class MorphemeRecord:
     corpus_id: str
     document_id: str
     sentence_id: str
+    mp_id: int
     word_id: int | None
     word_form: str | None
     morpheme: str
@@ -47,6 +48,7 @@ class ValidationIssue:
     code: str
     sentence_id: str
     mp_id: int | None
+    record_index: int
     detail: str
 
 
@@ -57,6 +59,7 @@ class ParsedSentence:
     corpus_id: str
     document_id: str
     sentence_id: str
+    source_subtype: SourceSubtype
     sentence_form: str
     original_form: str | None
     word_count: int
@@ -296,24 +299,56 @@ def _parse_sentence(
 
         if mp_id in seen_mp_ids:
             issues.append(
-                ValidationIssue("duplicate_mp_id", sentence_id, mp_id, f"duplicate MP id {mp_id}")
+                ValidationIssue(
+                    "duplicate_mp_id",
+                    sentence_id,
+                    mp_id,
+                    index,
+                    f"duplicate MP id {mp_id}",
+                )
             )
         seen_mp_ids.add(mp_id)
         if not isinstance(morpheme, str) or not morpheme.strip():
             issues.append(
-                ValidationIssue("empty_morpheme", sentence_id, mp_id, "form is missing or blank")
+                ValidationIssue(
+                    "empty_morpheme",
+                    sentence_id,
+                    mp_id,
+                    index,
+                    "form is missing or blank",
+                )
             )
             morpheme = morpheme if isinstance(morpheme, str) else ""
         if not isinstance(pos, str) or not pos.strip():
-            issues.append(ValidationIssue("empty_pos", sentence_id, mp_id, "label is missing or blank"))
+            issues.append(
+                ValidationIssue(
+                    "empty_pos",
+                    sentence_id,
+                    mp_id,
+                    index,
+                    "label is missing or blank",
+                )
+            )
             pos = pos if isinstance(pos, str) else ""
         if word_id is None:
             issues.append(
-                ValidationIssue("missing_word_id", sentence_id, mp_id, "word_id is not an integer")
+                ValidationIssue(
+                    "missing_word_id",
+                    sentence_id,
+                    mp_id,
+                    index,
+                    "word_id is not an integer",
+                )
             )
         elif word_id not in word_forms:
             issues.append(
-                ValidationIssue("orphan_word_id", sentence_id, mp_id, f"unknown word_id {word_id}")
+                ValidationIssue(
+                    "orphan_word_id",
+                    sentence_id,
+                    mp_id,
+                    index,
+                    f"unknown word_id {word_id}",
+                )
             )
 
         if word_id is not None:
@@ -324,6 +359,7 @@ def _parse_sentence(
                         "position_order",
                         sentence_id,
                         mp_id,
+                        index,
                         f"word_id {word_id}: expected position {expected}, got {position!r}",
                     )
                 )
@@ -334,6 +370,7 @@ def _parse_sentence(
                 corpus_id=corpus_id,
                 document_id=document_id,
                 sentence_id=sentence_id,
+                mp_id=mp_id,
                 word_id=word_id,
                 word_form=word_forms.get(word_id) if word_id is not None else None,
                 morpheme=morpheme,
@@ -347,6 +384,7 @@ def _parse_sentence(
         corpus_id=corpus_id,
         document_id=document_id,
         sentence_id=sentence_id,
+        source_subtype=source_subtype,
         sentence_form=sentence_form,
         original_form=original,
         word_count=len(words),
