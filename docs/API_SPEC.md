@@ -59,8 +59,12 @@ way for a client to learn why something broke; that is the operator's channel.
 
 `INVALID_INPUT` vs. `INVALID_WORD`: the former is schema validation (missing
 field, empty/whitespace-only `word`), the latter is a word the game cannot
-process (too long, contains whitespace; out-of-vocabulary once a real model with
-a vocabulary is wired — the deterministic mock accepts any string).
+process (too long, contains whitespace, or out of vocabulary). Whether a word
+can be out of vocabulary at all is a server configuration: a live embedding
+model composes a vector for any string, while a server scoring from precomputed
+data holds a score for exactly the words in that data and rejects the rest. A
+client must handle `INVALID_WORD` either way — it is the same code, the same
+status, and the same envelope in both cases.
 
 ---
 
@@ -149,7 +153,7 @@ field at all.
 | `guessId`    | string          | no       |                                                              |
 | `word`       | string          | no       | Normalized (trimmed) form of the guess.                      |
 | `similarity` | number          | no       | Cosine similarity, range **[-1.0, 1.0]**.                    |
-| `rank`       | integer \| null | **yes**  | Position among all known words, 1 = the answer. `null` when the server has no vocabulary configured, or the guess falls outside it. |
+| `rank`       | integer \| null | **yes**  | Position among all known words, 1 = the answer. `null` when the server has no vocabulary configured, or the guess falls outside it. A server scoring from precomputed data always sends an integer, because a guess it cannot rank is rejected instead. |
 | `isAnswer`   | boolean         | no       | `true` when the guess equals the answer.                     |
 | `coordinate` | object \| null  | **yes**  | `{x,y,z}` for 3D map; `null` until projection exists (Phase 2). |
 
@@ -179,7 +183,13 @@ applies only while a game is in progress.
 
 Errors: `404 GAME_NOT_FOUND`, `409 GAME_ALREADY_FINISHED`,
 `422 INVALID_INPUT` (missing / empty / whitespace-only `word`),
-`400 INVALID_WORD` (unprocessable: too long, contains whitespace; OOV later).
+`400 INVALID_WORD` (unprocessable: too long, contains whitespace, or out of
+vocabulary — see the note above on when that last one can happen).
+
+A rejected guess changes nothing: it is not recorded, `guessCount` does not
+grow, and the game stays `playing`. The order of checks is fixed —
+`GAME_ALREADY_FINISHED` beats `INVALID_WORD`, so a finished game rejects an
+unscorable word as a conflict rather than a bad request.
 
 ### ✅ `GET /api/games/{gameId}` — fetch game state
 
