@@ -62,6 +62,17 @@ class RawFrequencyRow:
 
 
 @dataclass(frozen=True, slots=True)
+class NormalizationDecision:
+    """One reusable POS-policy decision independent of corpus provenance."""
+
+    canonical_form: str
+    status: NormalizationStatus
+    in_game_vocabulary: bool
+    in_answer_candidates: bool
+    reason: str
+
+
+@dataclass(frozen=True, slots=True)
 class NormalizedFrequencyRow:
     """One normalized row retaining its full source provenance."""
 
@@ -171,29 +182,60 @@ def normalize_row(
     answer_words: frozenset[str],
 ) -> NormalizedFrequencyRow:
     """Apply the POS gate; candidate membership remains evidence only."""
-    if row.pos in RAW_MATCH_POS:
-        canonical = row.morpheme
-        status: NormalizationStatus = (
-            "matched" if canonical in game_words else "unmatched"
-        )
-    elif row.pos in BASEFORM_POS:
-        canonical = f"{row.morpheme}다"
-        status = "matched" if canonical in game_words else "review"
-    elif row.pos in REVIEW_POS:
-        canonical = row.morpheme
-        status = "review"
-    else:
-        canonical = ""
-        status = "unmatched"
+    decision = normalize_morpheme(row.morpheme, row.pos, game_words, answer_words)
     return NormalizedFrequencyRow(
         source_subtype=row.source_subtype,
         source_morpheme=row.morpheme,
         source_pos=row.pos,
+        canonical_form=decision.canonical_form,
+        status=decision.status,
+        count=row.count,
+        in_game_vocabulary=decision.in_game_vocabulary,
+        in_answer_candidates=decision.in_answer_candidates,
+    )
+
+
+def normalize_morpheme(
+    morpheme: str,
+    pos: str,
+    game_words: frozenset[str],
+    answer_words: frozenset[str],
+) -> NormalizationDecision:
+    """Apply the shared MP/Kiwi lexical policy to one normalized morpheme/POS."""
+    canonical_morpheme = normalize_form(morpheme)
+    canonical_pos = pos.strip()
+    if not canonical_morpheme or not canonical_pos:
+        raise ModuNormalizationError("Morpheme and POS must not be empty.")
+    if canonical_pos in RAW_MATCH_POS:
+        canonical = canonical_morpheme
+        if canonical in game_words:
+            status: NormalizationStatus = "matched"
+            reason = "raw_vocabulary_match"
+        else:
+            status = "unmatched"
+            reason = "raw_not_in_game_vocabulary"
+    elif canonical_pos in BASEFORM_POS:
+        canonical = f"{canonical_morpheme}다"
+        if canonical in game_words:
+            status = "matched"
+            reason = "predicate_plus_da_vocabulary_match"
+        else:
+            status = "review"
+            reason = "predicate_plus_da_not_in_game_vocabulary"
+    elif canonical_pos in REVIEW_POS:
+        canonical = canonical_morpheme
+        status = "review"
+        reason = "pos_requires_review"
+    else:
+        canonical = ""
+        status = "unmatched"
+        reason = "pos_excluded"
+    return NormalizationDecision(
         canonical_form=canonical,
         status=status,
-        count=row.count,
         in_game_vocabulary=bool(canonical and canonical in game_words),
         in_answer_candidates=bool(canonical and canonical in answer_words),
+        reason=reason,
     )
 
 
