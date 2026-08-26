@@ -8,6 +8,7 @@ import pytest
 from contextle_eval.modu_kiwi_adapter import (
     KiwiAdapterError,
     adapt_kiwi_tokens,
+    extract_derivational_candidates,
     lexical_frequency_records,
 )
 
@@ -103,6 +104,20 @@ def test_eojeol_grouping_includes_sentence_position() -> None:
     assert records[3].sentence_index == 1
 
 
+def test_zero_length_inserted_kiwi_token_preserves_provenance() -> None:
+    text = "학생"
+    tokens = [
+        FakeToken("학생", "NNG", 0, 2, 0),
+        FakeToken("이", "VCP", 2, 0, 0),
+    ]
+
+    records = adapt_kiwi_tokens("inserted", text, tokens, GAME_WORDS, ANSWER_WORDS)
+
+    assert records[1].token_start == records[1].token_end == 2
+    assert records[1].eojeol_surface == "학생"
+    assert records[1].status == "unmatched"
+
+
 def test_xsv_xsa_context_is_audited_without_synthetic_frequency() -> None:
     text = "공부하다 가능하다"
     tokens = [
@@ -126,6 +141,52 @@ def test_xsv_xsa_context_is_audited_without_synthetic_frequency() -> None:
     ]
     with pytest.raises(KiwiAdapterError, match="more than once"):
         lexical_frequency_records((*records, records[0]))
+
+
+def test_derivational_lane_preserves_provenance_without_frequency_assignment() -> None:
+    text = "공부하다 가능하다"
+    tokens = [
+        FakeToken("공부", "NNG", 0, 2, 0),
+        FakeToken("하", "XSV", 2, 1, 0),
+        FakeToken("다", "EF", 3, 1, 0),
+        FakeToken("가능", "NNG", 5, 2, 1),
+        FakeToken("하", "XSA", 7, 1, 1),
+        FakeToken("다", "EF", 8, 1, 1),
+    ]
+    records = adapt_kiwi_tokens("lane", text, tokens, GAME_WORDS, ANSWER_WORDS)
+
+    candidates = extract_derivational_candidates(records, GAME_WORDS, ANSWER_WORDS)
+
+    assert [(item.canonical_form, item.base_pos, item.suffix_pos) for item in candidates] == [
+        ("공부하다", "NNG", "XSV"),
+        ("가능하다", "NNG", "XSA"),
+    ]
+    assert candidates[0].source_text_id == "lane"
+    assert candidates[0].eojeol_surface == "공부하다"
+    assert candidates[0].base_token_index == 0
+    assert candidates[0].suffix_token_index == 1
+    assert candidates[0].frequency_assignment == "review_only"
+    assert candidates[1].in_game_vocabulary is False
+    assert len(lexical_frequency_records(records)) == 2
+    assert all(item.canonical_form not in {"공부하다", "가능하다"} for item in records)
+
+
+def test_derivational_candidate_output_is_deterministic_and_not_duplicated() -> None:
+    text = "공개되다"
+    tokens = [
+        FakeToken("공개", "NNG", 0, 2, 0),
+        FakeToken("되", "XSV", 2, 1, 0),
+        FakeToken("다", "EF", 3, 1, 0),
+    ]
+    records = adapt_kiwi_tokens("public", text, tokens, GAME_WORDS, ANSWER_WORDS)
+
+    first = extract_derivational_candidates(records, GAME_WORDS, ANSWER_WORDS)
+    second = extract_derivational_candidates(records, GAME_WORDS, ANSWER_WORDS)
+
+    assert first == second
+    assert len(first) == 1
+    assert first[0].canonical_form == "공개되다"
+    assert first[0].suffix_pos == "XSV"
 
 
 def test_actual_kiwi_content_auxiliary_and_derivational_output() -> None:

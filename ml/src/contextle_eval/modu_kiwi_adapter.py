@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections import defaultdict
 from collections.abc import Sequence
 from dataclasses import dataclass
+from itertools import pairwise
 from typing import Protocol
 
 from contextle_eval.modu_normalization import (
@@ -56,6 +57,29 @@ class KiwiNormalizationRecord:
     derivational_candidate: str
 
 
+@dataclass(frozen=True, slots=True)
+class DerivationalCandidateRecord:
+    """Audit-only noun-base plus XSV/XSA predicate with full provenance."""
+
+    source_text_id: str
+    source_text: str
+    sentence_index: int
+    eojeol_index: int
+    eojeol_start: int
+    eojeol_end: int
+    eojeol_surface: str
+    base_token_index: int
+    base_form: str
+    base_pos: str
+    suffix_token_index: int
+    suffix_form: str
+    suffix_pos: str
+    canonical_form: str
+    in_game_vocabulary: bool
+    in_answer_candidates: bool
+    frequency_assignment: str = "review_only"
+
+
 def base_kiwi_tag(tag: str) -> str:
     """Map Kiwi regularity suffixes such as ``VV-I`` to the MP base tag."""
     return tag.split("-", maxsplit=1)[0].strip()
@@ -75,7 +99,7 @@ def adapt_kiwi_tokens(
     for index, token in enumerate(tokens):
         if (
             token.start < 0
-            or token.len < 1
+            or token.len < 0
             or token.word_position < 0
             or token.sent_position < 0
         ):
@@ -98,7 +122,7 @@ def adapt_kiwi_tokens(
     }
     derivational_candidates: dict[int, str] = {}
     for indices in grouped_indices.values():
-        for previous_index, current_index in zip(indices, indices[1:], strict=False):
+        for previous_index, current_index in pairwise(indices):
             previous = tokens[previous_index]
             current = tokens[current_index]
             if (
@@ -155,3 +179,52 @@ def lexical_frequency_records(
     if len(token_keys) != len(selected):
         raise KiwiAdapterError("A Kiwi token would be counted more than once.")
     return selected
+
+
+def extract_derivational_candidates(
+    records: Sequence[KiwiNormalizationRecord],
+    game_words: frozenset[str],
+    answer_words: frozenset[str],
+) -> tuple[DerivationalCandidateRecord, ...]:
+    """Return review-only base+suffix candidates without adding frequency rows."""
+    candidates: list[DerivationalCandidateRecord] = []
+    for base, suffix in pairwise(records):
+        same_eojeol = (
+            base.source_text_id == suffix.source_text_id
+            and base.sentence_index == suffix.sentence_index
+            and base.eojeol_index == suffix.eojeol_index
+        )
+        if not (
+            same_eojeol
+            and base.source_pos in DERIVATIONAL_BASE_POS
+            and suffix.source_pos in DERIVATIONAL_SUFFIX_POS
+        ):
+            continue
+        canonical = f"{base.source_morpheme}{suffix.source_morpheme}다"
+        candidates.append(
+            DerivationalCandidateRecord(
+                source_text_id=base.source_text_id,
+                source_text=base.source_text,
+                sentence_index=base.sentence_index,
+                eojeol_index=base.eojeol_index,
+                eojeol_start=base.eojeol_start,
+                eojeol_end=base.eojeol_end,
+                eojeol_surface=base.eojeol_surface,
+                base_token_index=base.token_index,
+                base_form=base.source_morpheme,
+                base_pos=base.source_pos,
+                suffix_token_index=suffix.token_index,
+                suffix_form=suffix.source_morpheme,
+                suffix_pos=suffix.source_pos,
+                canonical_form=canonical,
+                in_game_vocabulary=canonical in game_words,
+                in_answer_candidates=canonical in answer_words,
+            )
+        )
+    keys = {
+        (candidate.source_text_id, candidate.base_token_index, candidate.suffix_token_index)
+        for candidate in candidates
+    }
+    if len(keys) != len(candidates):
+        raise KiwiAdapterError("A derivational source occurrence was recorded twice.")
+    return tuple(candidates)
