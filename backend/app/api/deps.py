@@ -4,32 +4,46 @@ Routers depend on these instead of constructing services directly, which keeps
 handlers testable: a test overrides `game_repository` or `answer_selector` via
 `app.dependency_overrides` to get an isolated store and a pinned answer word.
 
-Why there are two guess-scorer dependencies
--------------------------------------------
-`guess_scorer` and `artifact_guess_scorer` do the same job for the two scoring
-providers, and `app.main.create_app` picks one, once. That is not indecision —
-it is the only shape that satisfies both of the requirements below at the same
-time, because FastAPI resolves every declared sub-dependency before it calls the
-function that declared them:
+Why the artifact dependencies are built by a function
+-----------------------------------------------------
+`guess_scorer` is a dependency; `artifact_guess_scorer_for` and
+`artifact_answer_selector_for` are functions that *return* one, bound to a
+particular `Settings`. `app.main.create_app` calls them once, with the settings
+that app was created from. Two separate problems make that the shape.
 
-1. Overriding `embedding_service` or `rank_provider` must still change what a
-   guess scores, which means the embedding scorer has to *declare* both.
-2. In artifact mode the embedding stack must not be built at all — no model
-   load, no vocabulary matrix — which means the artifact scorer must declare
-   neither.
+**The embedding stack must not be built in artifact mode.** FastAPI resolves
+every declared sub-dependency before calling the function that declared them, so
+one dependency cannot both
 
-One function cannot do both: declaring the two seams would resolve them in
-artifact mode too, and with `EMBEDDING_PROVIDER=fasttext` that is a multi-
-gigabyte model loaded to serve a scorer that never calls it. So the choice moves
-one level up, to where the app is built, and each dependency stays honest about
-what it needs.
+1. declare `embedding_service` and `rank_provider` — which is what keeps
+   overriding either of them changing what a guess scores — and
+2. avoid building them when nothing will call them, which with
+   `EMBEDDING_PROVIDER=fasttext` is a multi-gigabyte model loaded to serve a
+   scorer that never touches it.
+
+So the choice of *which* dependency moves up to where the app is built, and each
+one stays honest about what it needs.
+
+**An app must serve the configuration it was created from.** `create_app` takes
+an explicit `Settings`, so a dependency reaching for `get_settings()` could
+answer from a different one — a different artifact root than the app selected
+artifact mode from. Binding the settings into the dependency at wiring time
+removes the question: there is no global to consult, and so no chance of
+consulting the wrong one.
+
+Note what is *not* here as a result. The answer selector has no provider branch:
+in artifact mode `create_app` overrides it with a bound one, so the cached
+default stays the placeholder-word selector it has always been, belonging to the
+one provider that uses it.
 """
 
+from collections.abc import Callable
 from functools import lru_cache
 from typing import Annotated
 
 from fastapi import Depends
 
+from app.core.config import Settings
 from app.domain.words import AnswerSelector, RandomAnswerSelector
 from app.services.embedding import EmbeddingService, get_embedding_service
 from app.services.game import GameRepository, GameService, InMemoryGameRepository
@@ -38,9 +52,7 @@ from app.services.scoring import (
     ArtifactGuessScorer,
     EmbeddingGuessScorer,
     GuessScorer,
-    ScoringProvider,
     get_artifact_store,
-    resolve_scoring_provider,
 )
 
 
@@ -68,33 +80,18 @@ def game_repository() -> GameRepository:
 
 @lru_cache
 def _cached_answer_selector() -> AnswerSelector:
-    """Choose the word list a new game's answer is drawn from.
-
-    One selector class, two sources. In artifact mode the answers are exactly
-    the answers the loaded root can serve, because an answer with no artifact is
-    a game nobody can score; `ANSWER_WORDS` is a placeholder list that has no
-    relationship to any root and must not be used there. In embedding mode a
-    live model can score any answer, so the placeholder list stays.
-
-    Cached because it is process-wide, like the store it reads. It is *provider*
-    dependent, so `reset_answer_selector` exists alongside the other factory
-    resets — a test that switches providers has to drop this too.
-    """
-    if resolve_scoring_provider() is ScoringProvider.ARTIFACT:
-        return RandomAnswerSelector(get_artifact_store().answers)
     return RandomAnswerSelector()
 
 
 def answer_selector() -> AnswerSelector:
-    return _cached_answer_selector()
+    """Draw a new game's answer from the placeholder word list.
 
-
-def reset_answer_selector() -> None:
-    """Drop the cached selector so the next call rebuilds it.
-
-    For tests only: production wiring builds it once and never resets it.
+    Artifact mode replaces this wholesale (`artifact_answer_selector_for`),
+    because there the answers a game may have are exactly the answers the loaded
+    root can serve. Keeping that out of here is what stops one provider caching
+    a selector the other would inherit.
     """
-    _cached_answer_selector.cache_clear()
+    return _cached_answer_selector()
 
 
 # Reusable annotated dependencies for route signatures.
@@ -116,16 +113,40 @@ def guess_scorer(embedder: EmbeddingServiceDep, ranker: RankProviderDep) -> Gues
     return EmbeddingGuessScorer(embedder, ranker)
 
 
-def artifact_guess_scorer() -> GuessScorer:
-    """Compose the artifact-mode scorer from the process-wide store.
+def artifact_guess_scorer_for(settings: Settings) -> Callable[[], GuessScorer]:
+    """Return the artifact-mode scorer dependency, bound to ``settings``.
 
-    Note the empty parameter list. It is the production isolation, stated in the
-    only way FastAPI can enforce: a dependency that declares no embedding seam
-    cannot cause one to be built. The store is expensive and cached; the scorer
-    around it is a single attribute assignment, so it is built per request like
-    its embedding counterpart.
+    Note the returned dependency's empty parameter list. It is the production
+    isolation, stated in the only way FastAPI can enforce: a dependency that
+    declares no embedding seam cannot cause one to be built. The store behind it
+    is expensive and cached; the scorer is a single attribute assignment, so it
+    is built per request like its embedding counterpart.
     """
-    return ArtifactGuessScorer(get_artifact_store())
+
+    def _artifact_guess_scorer() -> GuessScorer:
+        return ArtifactGuessScorer(get_artifact_store(settings))
+
+    return _artifact_guess_scorer
+
+
+def artifact_answer_selector_for(settings: Settings) -> Callable[[], AnswerSelector]:
+    """Return the artifact-mode answer selector dependency, bound to ``settings``.
+
+    The same store the scorer reads, because both ask for it with the same
+    settings and the store is cached under exactly that configuration. An app
+    therefore cannot draw an answer from one root and score guesses against
+    another.
+
+    Built per request rather than cached: ``store.answers`` is already a tuple so
+    ``RandomAnswerSelector`` re-wraps nothing, and a fresh ``random.Random``
+    costs a seed. Both are trivial next to creating a game, and neither is worth
+    a second cache whose invalidation would have to track this one's settings.
+    """
+
+    def _artifact_answer_selector() -> AnswerSelector:
+        return RandomAnswerSelector(get_artifact_store(settings).answers)
+
+    return _artifact_answer_selector
 
 
 GuessScorerDep = Annotated[GuessScorer, Depends(guess_scorer)]

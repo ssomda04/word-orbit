@@ -5,18 +5,31 @@ downstream — the dependency wiring, the startup warm-up, the answer selector �
 asks this module rather than reading ``SCORING_PROVIDER`` itself, so there is
 exactly one spelling of the choice and exactly one place to widen it.
 
+Settings are passed in, never fetched
+--------------------------------------
+``get_artifact_store`` takes a ``Settings`` and nothing here calls
+``get_settings()``. That is deliberate and load-bearing: ``create_app`` accepts
+an explicit settings object, and a function that re-reads the global one can
+answer from a *different* configuration than the app that called it — selecting
+artifact mode from one root while serving from another. Making the parameter
+required rather than optional is the point; an optional one would let a call
+site quietly fall back to the global and reopen the same gap.
+
 Only the artifact provider has anything to cache. ``EmbeddingGuessScorer`` owns
 no state and is composed per request from the embedding and ranking factories,
 which already do their own caching; ``ArtifactStore`` owns a validated manifest
-and a bounded array cache, so it gets the same double-checked lock those two
-use. ``lru_cache`` would not do: it stores one result but does not stop two
-threads that miss simultaneously from both parsing and validating the root.
+and a bounded array cache, so it is built once and shared under a lock. A plain
+``lru_cache`` would not do: it stores one result but does not stop two threads
+that miss simultaneously from both parsing and validating the root.
 
-Configuration is validated here rather than on ``Settings`` for the reason
-``FASTTEXT_MODEL_PATH`` is: ``ARTIFACT_ROOT`` is meaningless in embedding mode,
-and a mock run must never fail over a variable it does not use. What *is* on
-``Settings`` is ``ARTIFACT_CACHE_SIZE``, whose validity does not depend on the
-mode at all.
+The cache is keyed by the configuration it was built from — the resolved root
+and the cache size — not merely by "something was built". A process-global that
+ignored the configuration would hand an app whatever the *previous* app was
+configured with, which is a correctness bug rather than a stale-cache
+inconvenience: the answers a game can have, and the numbers a guess scores,
+would come from a root nobody asked for. Two spellings of one directory produce
+two keys and therefore two stores; that costs a second load and is otherwise
+harmless, so the key stays the path as configured rather than a resolved one.
 
 One check the reader cannot make
 ---------------------------------
@@ -42,6 +55,7 @@ root that should not be served at all, not one to quietly serve less of.
 """
 
 import threading
+from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
 
@@ -61,12 +75,33 @@ class ScoringProvider(StrEnum):
     ARTIFACT = "artifact"
 
 
-_store: ArtifactStore | None = None
+@dataclass(frozen=True, slots=True)
+class _StoreConfig:
+    """Everything about a ``Settings`` that changes which store it describes.
+
+    Two settings objects agreeing on these two values describe the same store,
+    whatever else differs; disagreeing on either means a different one must be
+    built. This is the cache's identity, so it is frozen and compared by value.
+    """
+
+    root: Path
+    cache_size: int
+
+
+# The one store this process has built, next to the configuration it was built
+# from. Single-entry rather than a dict: a server runs one configuration, and a
+# process that legitimately sees several (the test suite) wants the previous one
+# dropped rather than accumulated.
+_cached: tuple[_StoreConfig, ArtifactStore] | None = None
 _lock = threading.Lock()
 
 
 def resolve_scoring_provider(settings: Settings | None = None) -> ScoringProvider:
     """Return the configured provider.
+
+    ``settings`` is optional here, unlike ``get_artifact_store``: the answer is
+    derived from one field and nothing is cached under it, so a caller with no
+    settings in hand cannot cause a mismatch by omitting it.
 
     Raises:
         ValueError: ``SCORING_PROVIDER`` names a provider that does not exist.
@@ -85,40 +120,57 @@ def resolve_scoring_provider(settings: Settings | None = None) -> ScoringProvide
         ) from None
 
 
-def get_artifact_store() -> ArtifactStore:
-    """Return the process-wide artifact store, building it on first use.
+def get_artifact_store(settings: Settings) -> ArtifactStore:
+    """Return the store for ``settings``, building it on first use.
 
-    Built at most once per process; concurrent callers share the same instance.
+    Callers passing equal configuration share one instance; a caller passing
+    different configuration gets a store built from *its* configuration, and the
+    previous one is dropped. No caller can be handed a store belonging to
+    somebody else's root.
 
     Raises:
         ArtifactError: ``ARTIFACT_ROOT`` is unset or is not a directory, the root
             it names is missing, malformed, or outside the supported contract, or
             it offers an answer this server could not set a game on.
     """
-    global _store
-    # Fast path: an assignment to a module global is atomic, so an already-built
-    # store needs no lock.
-    if _store is not None:
-        return _store
+    global _cached
+    # Resolved before the lock and on every call: it is two field reads and two
+    # filesystem-free checks, and it is what decides whether the cached store is
+    # even the right one to return.
+    config = _store_config(settings)
+
+    # Fast path: an assignment to a module global is atomic, so reading the pair
+    # once and comparing it needs no lock.
+    cached = _cached
+    if cached is not None and cached[0] == config:
+        return cached[1]
+
     with _lock:
-        if _store is None:
-            _store = _build_artifact_store()
-        return _store
+        if _cached is not None and _cached[0] == config:
+            return _cached[1]
+        store = _build_artifact_store(config)
+        _cached = (config, store)
+        return store
 
 
 def reset_artifact_store() -> None:
     """Drop the cached store so the next call rebuilds it.
 
-    For tests only: production wiring builds it once at startup
-    (``app.main``'s lifespan) and never resets it.
+    For tests only, and only for the case the key cannot cover: forcing a rebuild
+    from *identical* configuration. A test that changes the root or the cache
+    size does not need this — that is a different key, and a different store.
     """
-    global _store
+    global _cached
     with _lock:
-        _store = None
+        _cached = None
 
 
-def _build_artifact_store() -> ArtifactStore:
-    settings = get_settings()
+def _store_config(settings: Settings) -> _StoreConfig:
+    """Resolve ``settings`` into the identity of the store it asks for.
+
+    Raises:
+        ArtifactError: ``ARTIFACT_ROOT`` is unset or does not name a directory.
+    """
     raw_root = settings.artifact_root.strip()
     if not raw_root:
         raise ArtifactError(
@@ -134,12 +186,16 @@ def _build_artifact_store() -> ArtifactStore:
     if not root.is_dir():
         raise ArtifactError(f"ARTIFACT_ROOT is not a directory: {root}")
 
+    return _StoreConfig(root=root, cache_size=settings.artifact_cache_size)
+
+
+def _build_artifact_store(config: _StoreConfig) -> ArtifactStore:
     # Full validation, every startup: the manifest, the canonical vocabulary,
     # every answer mapping, and the existence of every file they refer to. The
     # arrays themselves are read only when an answer is first scored.
-    manifest = load_manifest(root)
+    manifest = load_manifest(config.root)
     _validate_answers_are_playable(manifest)
-    return ArtifactStore(manifest, cache_size=settings.artifact_cache_size)
+    return ArtifactStore(manifest, cache_size=config.cache_size)
 
 
 def _validate_answers_are_playable(manifest: ArtifactManifest) -> None:

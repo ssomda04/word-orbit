@@ -7,7 +7,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from app.api.deps import answer_selector, game_repository, reset_answer_selector
+from app.api.deps import answer_selector, game_repository
 from app.core.config import get_settings
 from app.main import create_app
 from app.services.embedding import reset_embedding_service
@@ -30,20 +30,17 @@ def _reset_process_wide_state() -> None:
     reset_embedding_service()
     reset_rank_provider()
     reset_artifact_store()
-    # Provider-dependent: in artifact mode it is built from the loaded root, so
-    # a test that switches providers must not inherit the previous word list.
-    reset_answer_selector()
 
 
 @pytest.fixture(autouse=True)
 def _isolated_providers() -> Iterator[None]:
     """Keep the process-wide services from leaking between tests.
 
-    The settings, the embedding service, the rank provider, the artifact store
-    and the answer selector are all cached for the lifetime of the process. A
-    test that points `EMBEDDING_PROVIDER` at FastText, `VOCABULARY_PATH` at a
-    temporary word list, or `SCORING_PROVIDER` at a temporary artifact root
-    would otherwise hand its state to every test that ran afterwards.
+    The settings, the embedding service, the rank provider and the artifact
+    store are all cached for the lifetime of the process. A test that points
+    `EMBEDDING_PROVIDER` at FastText, `VOCABULARY_PATH` at a temporary word
+    list, or `SCORING_PROVIDER` at a temporary artifact root would otherwise
+    hand its state to every test that ran afterwards.
     """
     _reset_process_wide_state()
     yield
@@ -76,9 +73,9 @@ def client(app: FastAPI) -> TestClient:
 def configure_environment(monkeypatch: pytest.MonkeyPatch, **env: str) -> None:
     """Set environment variables and drop every cached singleton that reads them.
 
-    `Settings`, the embedding service, the rank provider, the artifact store and
-    the answer selector are all process-cached, so changing the environment
-    without this leaves the previous configuration in place.
+    `Settings`, the embedding service, the rank provider and the artifact store
+    are all process-cached, so changing the environment without this leaves the
+    previous configuration in place.
     """
     for key, value in env.items():
         monkeypatch.setenv(key, value)
