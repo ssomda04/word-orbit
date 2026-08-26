@@ -286,9 +286,7 @@ def validate_artifact(artifact: RankArtifact, vocabulary: VocabularyIndex) -> No
     answer_index = int(metadata.get("answer_vocab_index", -1))
     if not 0 <= answer_index < size or artifact.ranks[answer_index] != 1:
         raise RankArtifactError("Artifact answer must have rank 1.")
-    if not np.isclose(
-        artifact.similarities[answer_index], 1.0, rtol=0.0, atol=1e-6
-    ):
+    if artifact.similarities[answer_index] != 1.0:
         raise RankArtifactError("Artifact answer similarity must be 1.0.")
     expected = np.arange(1, size + 1, dtype=artifact.ranks.dtype)
     if not np.array_equal(np.sort(artifact.ranks), expected):
@@ -550,8 +548,10 @@ def load_artifact_root_answer(
     try:
         similarities = np.load(root / expected_similarity, allow_pickle=False)
         ranks = np.load(root / expected_rank, allow_pickle=False)
-    except (OSError, ValueError) as exc:
-        raise RankArtifactError(f"Could not load answer artifact {artifact_id}: {exc}") from exc
+    except Exception as exc:
+        raise RankArtifactError(
+            f"Could not load answer artifact {artifact_id} ({type(exc).__name__})."
+        ) from None
     size = len(vocabulary.words)
     if similarities.shape != (size,) or ranks.shape != (size,):
         raise RankArtifactError("Artifact arrays do not match manifest vocabulary size.")

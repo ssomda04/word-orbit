@@ -6,6 +6,8 @@ import hashlib
 import json
 import os
 import random
+import struct
+import traceback
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 
@@ -266,8 +268,9 @@ def test_similarity_cosine_boundaries_are_accepted() -> None:
     )
 
 
-@pytest.mark.parametrize("answer_similarity", [0.0, 1.0 - 5e-7])
-def test_answer_self_similarity_contract(answer_similarity: float) -> None:
+def _artifact_with_answer_similarity(
+    answer_similarity: np.float32,
+) -> tuple[RankArtifact, VocabularyIndex]:
     vocabulary, provider = _fixture()
     artifact = build_artifact(
         "정답",
@@ -277,13 +280,31 @@ def test_answer_self_similarity_contract(answer_similarity: float) -> None:
     )
     similarities = artifact.similarities.copy()
     similarities[int(artifact.metadata["answer_vocab_index"])] = answer_similarity
-    candidate = RankArtifact(artifact.metadata, similarities, artifact.ranks)
+    return RankArtifact(artifact.metadata, similarities, artifact.ranks), vocabulary
 
-    if answer_similarity == 0.0:
-        with pytest.raises(RankArtifactError, match="similarity must be 1.0"):
-            validate_artifact(candidate, vocabulary)
-    else:
-        validate_artifact(candidate, vocabulary)
+
+def test_answer_self_similarity_exactly_one_is_accepted() -> None:
+    artifact, vocabulary = _artifact_with_answer_similarity(np.float32(1.0))
+
+    validate_artifact(artifact, vocabulary)
+
+
+def test_answer_self_similarity_below_one_is_rejected() -> None:
+    below_one = np.nextafter(np.float32(1.0), np.float32(0.0))
+    assert below_one != np.float32(1.0)
+    artifact, vocabulary = _artifact_with_answer_similarity(below_one)
+
+    with pytest.raises(RankArtifactError, match="similarity must be 1.0"):
+        validate_artifact(artifact, vocabulary)
+
+
+def test_answer_self_similarity_above_one_is_rejected_by_cosine_range() -> None:
+    above_one = np.nextafter(np.float32(1.0), np.float32(2.0))
+    assert above_one != np.float32(1.0)
+    artifact, vocabulary = _artifact_with_answer_similarity(above_one)
+
+    with pytest.raises(RankArtifactError, match="within"):
+        validate_artifact(artifact, vocabulary)
 
 
 def test_missing_answer_error_does_not_reveal_requested_answer(tmp_path: Path) -> None:
@@ -297,6 +318,44 @@ def test_missing_answer_error_does_not_reveal_requested_answer(tmp_path: Path) -
     assert hidden_answer not in message
     assert repr(hidden_answer) not in message
     assert "secret<answer>" not in message
+
+
+def test_malformed_npy_header_does_not_reveal_answer_in_traceback(tmp_path: Path) -> None:
+    root, _ = _write_root(tmp_path)
+    manifest, vocabulary = load_artifact_root_manifest(root)
+    secret_answer = "hidden-answer\n<do-not-leak>"
+    header = (
+        "{'descr': '<f4', 'fortran_order': False, 'shape': (5,), "
+        f"'secret': {secret_answer!r}\n"
+    ).encode()
+    malformed_npy = b"\x93NUMPY\x03\x00" + struct.pack("<I", len(header)) + header
+    similarity_path = root / manifest["answers"]["정답"]["similarity_path"]
+    similarity_path.write_bytes(malformed_npy)
+    escaped_answer = secret_answer.encode("unicode_escape").decode("ascii")
+    doubly_escaped_answer = escaped_answer.replace("\\", "\\\\")
+
+    with pytest.raises(Exception) as numpy_exc_info:
+        np.load(similarity_path, allow_pickle=False)
+    assert "hidden-answer" in str(numpy_exc_info.value)
+
+    with pytest.raises(RankArtifactError) as exc_info:
+        load_artifact_root_answer(
+            root,
+            "정답",
+            manifest=manifest,
+            vocabulary=vocabulary,
+        )
+
+    rendered_traceback = "".join(
+        traceback.format_exception(exc_info.type, exc_info.value, exc_info.tb)
+    )
+    for rendered in (str(exc_info.value), rendered_traceback):
+        assert secret_answer not in rendered
+        assert repr(secret_answer) not in rendered
+        assert escaped_answer not in rendered
+        assert doubly_escaped_answer not in rendered
+        assert "hidden-answer" not in rendered
+    assert exc_info.value.__cause__ is None
 
 
 @pytest.mark.parametrize(
