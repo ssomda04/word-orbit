@@ -17,6 +17,21 @@ Scoring is therefore modelled as one lookup that returns both.
 ``score`` takes the answer as a parameter rather than being bound to one, for
 exactly the reason ``RankProvider.rank_of`` does: a scorer stays stateless across
 games and holds no per-game memory.
+
+Why "cannot score" is ``None`` and not an exception
+---------------------------------------------------
+A live model produces a vector for any non-blank string, so every accepted guess
+has a similarity. A scorer reading precomputed data does not: an artifact holds
+a row for exactly the words in its canonical vocabulary, and there is nothing to
+read for a word outside it.
+
+That gap is reported by returning ``None``. It is deliberately *not* reported by
+raising ``InvalidWordError``, even though that is what the client eventually
+sees. ``INVALID_WORD`` is a game rule carrying an HTTP status; a scorer only
+knows whether it holds a number. Keeping the two apart means the scoring layer
+stays free of application semantics, and ``GameService`` — which already turns a
+finished game into a conflict — owns the one place a missing score becomes an
+error.
 """
 
 from dataclasses import dataclass
@@ -43,8 +58,13 @@ class GuessScore:
 class GuessScorer(Protocol):
     """Scores one guess against one answer in a single lookup."""
 
-    def score(self, answer: str, word: str) -> GuessScore:
+    def score(self, answer: str, word: str) -> GuessScore | None:
         """Return the similarity and rank of ``word`` with respect to ``answer``.
+
+        ``None`` means this scorer cannot score ``word`` at all — typically that
+        the word is outside the data it reads. That is a normal outcome, not an
+        error; the caller decides what it means for the game. An implementation
+        that can score anything simply never returns it.
 
         Both arguments are already normalized by ``app.domain.game.normalize_word``.
         Implementations MUST NOT log or return the answer word.

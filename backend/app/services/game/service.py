@@ -12,7 +12,7 @@ The answer word is read here only to score a guess, and is never logged.
 
 from datetime import UTC, datetime
 
-from app.core.errors import GameAlreadyFinishedError, GameNotFoundError
+from app.core.errors import GameAlreadyFinishedError, GameNotFoundError, InvalidWordError
 from app.domain.game import Game, Guess, normalize_word
 from app.domain.words import AnswerSelector
 from app.services.game.repository import GameRepository
@@ -65,7 +65,8 @@ class GameService:
         Raises:
             GameNotFoundError: no game with that id exists.
             GameAlreadyFinishedError: the game has already ended.
-            InvalidWordError: the word violates a guess rule.
+            InvalidWordError: the word violates a guess rule, or the scorer has
+                no score for it (see below).
         """
         game = self.get_game(game_id)
         # Checked before normalization and the duplicate lookup: a finished game
@@ -84,6 +85,15 @@ class GameService:
         # the stored result above, so neither value changes after the fact even
         # if the data behind the scorer were swapped.
         score = self._scorer.score(game.answer, word)
+        if score is None:
+            # The scorer holds no score for this word — with a precomputed
+            # provider, that means it is outside the artifact's vocabulary. The
+            # scorer reports the fact; the rule that an unscorable word is a
+            # rejected guess is this layer's, which is why the error is raised
+            # here and not there. The default message is used deliberately: it
+            # is the same sentence every other unprocessable word already gets,
+            # and it says nothing about how this server happens to score.
+            raise InvalidWordError()
         guess = game.record_guess(
             guess_id=self._repository.next_guess_id(game),
             word=word,

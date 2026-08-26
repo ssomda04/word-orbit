@@ -18,12 +18,18 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app import __version__
+from app.api import deps
 from app.api.routes import api_router
 from app.core.config import Settings, get_settings
 from app.core.errors import AppError
 from app.schemas.errors import ErrorResponse
 from app.services.embedding import get_embedding_service
 from app.services.ranking import get_rank_provider
+from app.services.scoring import (
+    ScoringProvider,
+    get_artifact_store,
+    resolve_scoring_provider,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -35,30 +41,48 @@ INTERNAL_ERROR_MESSAGE = "서버에 예기치 못한 오류가 발생했습니�
 
 
 @asynccontextmanager
-async def _lifespan(_: FastAPI) -> AsyncGenerator[None, None]:
-    """Build the embedding service and rank provider before serving anything.
+async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
+    """Build whatever the configured scoring provider reads through.
 
-    For the deterministic mock this is a sub-millisecond no-op. For a real model
-    it is the difference between an 8-second first guess and a warm one, and it
-    turns a bad `FASTTEXT_MODEL_PATH` into a loud startup failure instead of a
-    500 that would not even match the documented error envelope.
+    Warming what a provider needs is the same decision in both modes: it must
+    happen once, before the first request, and a misconfiguration must stop the
+    process here rather than surface as a 500 that would not even match the
+    documented error envelope.
 
-    The rank provider is warmed for the same reasons: with `VOCABULARY_PATH` set
-    it embeds the whole vocabulary, which must happen once at startup rather than
-    inside whichever request arrives first, and a bad path should fail loudly
-    here. Order matters — the provider embeds through the embedding service.
+    What differs is the *set*, and the difference is load-bearing rather than
+    tidy. Only one branch runs, so in artifact mode no embedding service is
+    constructed and no vocabulary is embedded — with `EMBEDDING_PROVIDER=fasttext`
+    that is a multi-gigabyte model this process never has a use for.
 
-    The guess scorer is absent from this list on purpose. `EmbeddingGuessScorer`
-    holds nothing but references to these two, so warming it would warm nothing
-    that is not warmed already. A scorer that loads its own data belongs here.
+    Embedding mode: for the deterministic mock the two calls are a
+    sub-millisecond no-op; for a real model they are the difference between an
+    8-second first guess and a warm one. Order matters — the rank provider
+    embeds the whole vocabulary through the embedding service.
+
+    Artifact mode: the manifest, the canonical vocabulary, every answer mapping,
+    and the existence of every file they refer to are all validated here, so a
+    wrong `ARTIFACT_ROOT` fails startup. The per-answer arrays are deliberately
+    *not* read — a root is hundreds of megabytes, of which one game touches one
+    answer's worth, so they load on first use (`ArtifactStore`).
+
+    The guess scorer itself is absent from both branches on purpose: neither
+    implementation holds anything that is not warmed above.
     """
-    get_embedding_service()
-    get_rank_provider()
+    if app.state.scoring_provider is ScoringProvider.ARTIFACT:
+        get_artifact_store()
+    else:
+        get_embedding_service()
+        get_rank_provider()
     yield
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or get_settings()
+    # Resolved once, here, and read back by the lifespan through `app.state`, so
+    # a `create_app(settings=...)` with an explicit object cannot start a server
+    # whose startup warms a different provider than its requests score through.
+    # An unknown SCORING_PROVIDER raises before the app object exists.
+    provider = resolve_scoring_provider(settings)
 
     app = FastAPI(
         title="Contextle API",
@@ -66,6 +90,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         description="Semantic word-guessing game backend (skeleton).",
         lifespan=_lifespan,
     )
+    app.state.scoring_provider = provider
+
+    if provider is ScoringProvider.ARTIFACT:
+        # Production wiring, not a test seam. `guess_scorer` declares the
+        # embedding and ranking dependencies so that overriding either still
+        # reaches a guess; FastAPI resolves declared dependencies whether or not
+        # the body uses them, so leaving it in place here would build the
+        # embedding stack to serve a scorer that never calls it. Swapping the
+        # dependency function is what keeps that stack untouched — see
+        # `app.api.deps`.
+        app.dependency_overrides[deps.guess_scorer] = deps.artifact_guess_scorer
 
     # CORS: origins come from configuration, never hard-coded to "*".
     app.add_middleware(

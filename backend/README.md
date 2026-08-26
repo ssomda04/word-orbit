@@ -78,6 +78,9 @@ Copy [`.env.example`](.env.example) to `.env` and adjust. Key variables:
 | `MODEL_NAME`           | *(empty)*                | Real model id (later phases).                      |
 | `VOCABULARY_PATH`      | *(empty)*                | Word list that guess ranks are computed against. Empty ⇒ `rank` is always null. |
 | `RANK_CACHE_SIZE`      | `32`                     | Answers whose similarity array stays in memory.    |
+| `SCORING_PROVIDER`     | `embedding`              | `embedding` \| `artifact`. Where `similarity` and `rank` come from. |
+| `ARTIFACT_ROOT`        | *(empty)*                | Absolute path to a precomputed artifact root. Required only for `artifact`. |
+| `ARTIFACT_CACHE_SIZE`  | `64`                     | Answers whose artifact arrays stay in memory. Positive integer. |
 | `DATABASE_URL`         | *(empty)*                | Reserved (multiplayer/history).                    |
 | `REDIS_URL`            | *(empty)*                | Reserved (multiplayer/history).                    |
 
@@ -149,6 +152,70 @@ Notes:
   per game. Past a few hundred thousand words, switch the matrix to `float32`
   (`VectorRankProvider(dtype=...)`).
 
+### Scoring from a precomputed artifact root
+
+`SCORING_PROVIDER=artifact` reads `similarity` and `rank` out of an **artifact
+root** built offline by the ML area instead of computing them from a live model.
+It is the production path: no model is loaded, so `EMBEDDING_PROVIDER`,
+`FASTTEXT_MODEL_PATH` and `VOCABULARY_PATH` are all unused and the `fasttext`
+extra need not be installed.
+
+```powershell
+$env:SCORING_PROVIDER = "artifact"
+$env:ARTIFACT_ROOT = "C:/models/contextle-artifacts"
+uv run uvicorn app.main:app --reload
+```
+
+```bash
+# macOS / Linux
+export SCORING_PROVIDER=artifact
+export ARTIFACT_ROOT=/opt/models/contextle-artifacts
+uv run uvicorn app.main:app --reload
+```
+
+The layout is [../docs/ARTIFACT_FORMAT.md](../docs/ARTIFACT_FORMAT.md). Artifact
+roots are data — they are produced by the ML area and never committed.
+
+What changes in this mode:
+
+- **`manifest.answers` is the answer source.** A new game's answer is drawn from
+  the answers the loaded root can actually serve, never from the placeholder
+  `ANSWER_WORDS` list. There is one source of truth, and it is the root.
+- **An out-of-vocabulary guess is `400 INVALID_WORD`.** An artifact holds a row
+  for exactly the words in its `vocabulary.txt`; a word outside it cannot be
+  scored at all, unlike a live model which composes a vector for anything. The
+  scorer reports "no score" and `GameService` applies the rule, so the client
+  gets the error code it already handles rather than a 500.
+- **`rank` is never null for an accepted guess**, because every word the root
+  can score also has a stored rank. The field stays nullable in the contract:
+  embedding mode without a vocabulary still returns `null`.
+- **No FastText at startup or at request time.** The lifespan warms the artifact
+  store *instead of* the embedding service and rank provider, and the guess path
+  declares no embedding dependency at all
+  ([`tests/test_artifact_runtime.py`](tests/test_artifact_runtime.py) proves it
+  rather than asserting it in prose).
+
+How it loads:
+
+- The root is **fully validated at startup** — the manifest, the canonical
+  vocabulary and its hash, every answer mapping, and the existence of every file
+  they refer to. A wrong `ARTIFACT_ROOT` fails the server, not the first guess.
+- **Every answer must be one the game can set.** A manifest key has to be a
+  canonical *vocabulary* word, and the vocabulary policy allows entries the
+  *guess* policy rejects — a headword containing a space, a word past the
+  50-character cap. Such an answer would break `POST /api/games` on the draws
+  that happened to pick it, so startup refuses the whole root instead. Nothing is
+  filtered: a root with one unusable answer is a root to rebuild. The refusal
+  names the `artifact_id` and the rule, never the word.
+- The per-answer `similarity.npy` / `rank.npy` arrays are **not** read at
+  startup. A root of a few thousand answers is hundreds of megabytes and one
+  game touches one answer's worth, so they load on first use and stay in a
+  **bounded LRU cache** of `ARTIFACT_CACHE_SIZE` answers. Startup time is
+  therefore flat in the number of answers.
+- Memory is roughly `ARTIFACT_CACHE_SIZE × vocabulary_size × 6` bytes (a float32
+  similarity array plus a uint16/32 rank array). Nothing is stored per game.
+- Cache entries are keyed by `artifact_id`, never by the answer word.
+
 ### Optional FastText tests
 
 `pytest` skips them unless the extra is installed **and** `FASTTEXT_MODEL_PATH`
@@ -175,7 +242,9 @@ app/
 ├─ services/
 │  ├─ embedding/      # EmbeddingService Protocol + mock + FastText + factory
 │  ├─ ranking/        # RankProvider Protocol + null + vectorized + factory
-│  ├─ scoring/        # GuessScorer Protocol + EmbeddingGuessScorer (similarity + rank)
+│  ├─ scoring/        # GuessScorer Protocol + provider factory
+│  │  ├─ embedding.py # EmbeddingGuessScorer: similarity + rank from a live model
+│  │  └─ artifact/    # artifact root reader + bounded store + ArtifactGuessScorer
 │  └─ game/           # GameRepository Protocol + in-memory store + GameService
 └─ domain/            # pure game logic — no FastAPI, no model
    ├─ game.py         # Game, Guess, GameStatus, word normalization
@@ -184,17 +253,25 @@ app/
 ```
 
 Request flow: `routes/games.py` → `GameService` → `Game` rules. `GameService`
-asks a single `GuessScorer` what a guess is worth and gets back both values;
-`EmbeddingGuessScorer` answers by calling the `EmbeddingService` and the
-`RankProvider`, which is why overriding either still changes what a guess
-scores. Storage, scoring, and answer selection are all injected via
-[`api/deps.py`](app/api/deps.py), so tests substitute a fresh store and a pinned
-answer word.
+asks a single `GuessScorer` what a guess is worth and gets back both values, and
+which scorer answers is `SCORING_PROVIDER`:
 
-The scoring seam exists so that similarity and rank can later come from one
-precomputed lookup instead of two live ones. Nothing about the current numbers
-changes: `EmbeddingGuessScorer` makes exactly the two calls `GameService` used
-to make itself.
+- `embedding` → `EmbeddingGuessScorer` calls the `EmbeddingService` and the
+  `RankProvider`, which is why overriding either still changes what a guess
+  scores.
+- `artifact` → `ArtifactGuessScorer` reads one row of one precomputed answer
+  artifact through the `ArtifactStore`, and no model is built at all.
+
+Storage, scoring, and answer selection are all injected via
+[`api/deps.py`](app/api/deps.py), so tests substitute a fresh store and a pinned
+answer word. The provider is resolved once, in `create_app`, which is also where
+the artifact scorer is wired in — a single dependency function cannot both keep
+honouring an `embedding_service` override and avoid building the embedding stack
+when it is unused, because FastAPI resolves every declared dependency.
+
+The scoring seam is what made that swap a wiring change rather than a rewrite:
+both values come from one lookup, so a precomputed source can replace two live
+ones without `GameService` or the schemas noticing.
 
 ## Conventions
 
