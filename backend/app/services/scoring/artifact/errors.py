@@ -21,6 +21,14 @@ failure by id is both safe and necessary. It is not a cryptographic protection
 either — anyone holding the root also holds ``manifest.json``, which lists the
 answers in plain text. Its purpose is narrower: keeping plaintext answers out of
 file paths, and therefore out of anything that echoes a path.
+
+That covers paths and nothing else. A hash-only path does *not* make a
+third-party exception safe to pass along, because a library that quotes a file's
+**contents** — as ``np.load`` does with a malformed ``.npy`` header — can
+surface an answer from a path that never named one. Failures crossing such a
+boundary are re-raised with a message this package wrote, and ``from None``, so
+neither the foreign message nor the foreign traceback is carried out. See
+``answer._load_array``.
 """
 
 

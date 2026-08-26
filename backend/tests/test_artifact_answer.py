@@ -10,6 +10,7 @@ of labour: `load_manifest` says nothing about array *contents*, and `load_answer
 says nothing about the root's *shape*.
 """
 
+import logging
 from pathlib import Path
 
 import numpy as np
@@ -376,15 +377,128 @@ def test_failures_identify_the_artifact_by_id(
     assert entry.artifact_id in str(error)
 
 
-def test_a_numpy_failure_cannot_echo_the_answer_through_a_path(
-    root: Path, manifest: ArtifactManifest, entry: AnswerEntry
+# --- The `np.load` boundary --------------------------------------------------
+#
+# Hash-only paths keep an answer out of a *filename*. They say nothing about a
+# file's *contents*, and numpy quotes contents: a malformed header comes back
+# inside the exception message. These tests establish that premise against the
+# installed numpy, then pin that the backend refuses to carry it.
+
+# Headers numpy reads successfully enough to quote, each failing a later check.
+# `{secret}` stands in for whatever the broken file happens to hold.
+LEAKY_HEADERS = (
+    pytest.param("{secret!r}", "Header is not a dictionary", id="not-a-dict"),
+    pytest.param(
+        "{{'descr': {secret!r}, 'fortran_order': False, 'shape': (6,)}}",
+        "descr is not a valid dtype descriptor",
+        id="bad-descr",
+    ),
+    pytest.param("{{{secret!r}: 1}}", "Header does not contain the correct keys", id="bad-keys"),
+    pytest.param(
+        "{{'descr': '<f4', 'fortran_order': False, 'shape': (6,), 'note': {secret!r}",
+        "Cannot parse header",
+        id="unparsable",
+    ),
+)
+
+
+@pytest.mark.parametrize(("header", "numpy_message"), LEAKY_HEADERS)
+def test_numpy_itself_echoes_the_file_into_its_message(
+    root: Path, header: str, numpy_message: str
 ) -> None:
-    """numpy reports the file it choked on; every path in a root is hash-only."""
-    (root / fixture.artifact_directory(ANSWER) / "similarity.npy").write_bytes(b"not npy")
+    """The premise the sanitising exists for. If this ever fails, re-read it."""
+    path = fixture.write_npy_with_header(
+        root, ANSWER, "similarity.npy", header.format(secret=ANSWER)
+    )
+
+    with pytest.raises(Exception) as caught:  # noqa: PT011 - numpy chooses the type.
+        np.load(path, allow_pickle=False)
+
+    assert numpy_message in str(caught.value)
+    assert ANSWER in str(caught.value)
+
+
+@pytest.mark.parametrize(("header", "numpy_message"), LEAKY_HEADERS)
+def test_a_leaky_numpy_message_is_not_carried_into_the_error(
+    root: Path,
+    manifest: ArtifactManifest,
+    entry: AnswerEntry,
+    header: str,
+    numpy_message: str,
+) -> None:
+    fixture.write_npy_with_header(root, ANSWER, "similarity.npy", header.format(secret=ANSWER))
 
     with pytest.raises(ArtifactError) as caught:
         load_answer(manifest, entry)
 
-    cause = str(caught.value.__cause__ or "")
+    error = caught.value
+    assert numpy_message not in str(error)
+    assert error.__cause__ is None
+    assert error.__context__ is None or error.__suppress_context__
     for form in _forbidden_forms(ANSWER):
-        assert form not in cause
+        assert form not in str(error)
+
+
+def test_a_sanitised_load_failure_still_says_which_artifact_and_what_kind(
+    root: Path, manifest: ArtifactManifest, entry: AnswerEntry
+) -> None:
+    """Redaction must not cost an operator the ability to act on the failure."""
+    fixture.write_npy_with_header(root, ANSWER, "similarity.npy", repr(ANSWER))
+
+    error = _reject(manifest, entry, "Could not load artifact")
+
+    assert entry.artifact_id in str(error)
+    assert "ValueError" in str(error)
+
+
+def test_a_header_numpy_cannot_tokenize_is_still_an_artifact_error(
+    root: Path, manifest: ArtifactManifest, entry: AnswerEntry
+) -> None:
+    """`tokenize.TokenError` is not an `OSError`/`ValueError`/`EOFError`.
+
+    numpy picks its own exception types, so the boundary catches broadly; a
+    narrower catch let this one escape `load_answer` unsanitised.
+    """
+    fixture.write_npy_with_header(root, ANSWER, "similarity.npy", f"{ANSWER!r} + (")
+
+    error = _reject(manifest, entry, "Could not load artifact")
+
+    assert error.__cause__ is None
+    for form in _forbidden_forms(ANSWER):
+        assert form not in str(error)
+
+
+def test_a_logged_traceback_of_a_load_failure_carries_no_answer(
+    root: Path,
+    manifest: ArtifactManifest,
+    entry: AnswerEntry,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The whole point: what `app.main`'s INTERNAL_ERROR handler would write out.
+
+    The reader is not wired into a request yet, so this reproduces that handler's
+    one relevant act — `logger.exception` on the escaped error — and reads back
+    the fully rendered record, traceback included.
+    """
+    fixture.write_npy_with_header(root, ANSWER, "similarity.npy", repr(ANSWER))
+    logger = logging.getLogger("app.main")
+
+    with caplog.at_level(logging.ERROR, logger="app.main"):
+        try:
+            load_answer(manifest, entry)
+        except ArtifactError:
+            logger.exception("Unhandled exception while handling POST /api/games/1/guesses.")
+
+    rendered = caplog.text
+    # Prove the failure path was taken and the traceback really was rendered,
+    # so this cannot pass by capturing nothing.
+    assert caplog.records, "nothing was logged"
+    assert "ArtifactError: Could not load artifact" in rendered
+    assert "Traceback (most recent call last)" in rendered
+    assert entry.artifact_id in rendered
+
+    assert "Header is not a dictionary" not in rendered
+    assert "direct cause" not in rendered
+    assert "During handling" not in rendered
+    for form in _forbidden_forms(ANSWER):
+        assert form not in rendered

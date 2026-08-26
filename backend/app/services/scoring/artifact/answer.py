@@ -29,6 +29,27 @@ the game relies on has to be asserted on the way in, or it is simply assumed:
 
 No message in this module names the answer; failures are identified by
 ``artifact_id`` (see ``errors``).
+
+``np.load`` is a third-party boundary
+-------------------------------------
+Its failures are *not* safe to pass along. ``numpy.lib._format_impl`` quotes the
+file back at you when a header will not parse — ``Cannot parse header: {!r}``,
+``Header is not a dictionary: {!r}``, ``Header does not contain the correct
+keys: {!r}``, ``descr is not a valid dtype descriptor: {!r}`` — so whatever
+happens to sit in a malformed ``.npy`` lands in the message verbatim. Hash-only
+paths keep an answer out of the *filename*; they say nothing about a file's
+*contents*. A root carrying an answer inside a broken array would therefore
+reach the log twice over: through an interpolated ``{exc}``, and through the
+rendered ``__cause__`` once ``app.main`` logs the traceback.
+
+So this boundary is treated exactly like the FastText one in
+``embedding.fasttext_service``: the message keeps only what an operator needs —
+which artifact, and what kind of failure — and ``from None`` drops numpy's chain
+rather than leaving it to be rendered. The catch is broad for the same reason it
+is there at all: the failure modes are numpy's to choose, and it already raises
+at least one type outside ``(OSError, ValueError, EOFError)``
+(``tokenize.TokenError``, from a header the tokenizer cannot even finish
+reading), which would otherwise escape unsanitized.
 """
 
 from dataclasses import dataclass
@@ -108,13 +129,10 @@ def load_answer(manifest: ArtifactManifest, entry: AnswerEntry) -> AnswerArtifac
 def _load_array(root: Path, relative: str, entry: AnswerEntry) -> np.ndarray:
     try:
         loaded = np.load(root / relative, allow_pickle=False)
-    except (OSError, ValueError, EOFError) as exc:
-        # The cause is chained: numpy reports the file it choked on and how, and
-        # every path in a root is hash-only, so nothing it can echo names an
-        # answer.
+    except Exception as exc:  # noqa: BLE001 - third-party boundary; see above.
         raise ArtifactError(
-            f"Could not load artifact {entry.artifact_id}: {exc}"
-        ) from exc
+            f"Could not load artifact {entry.artifact_id} ({type(exc).__name__})."
+        ) from None
     if not isinstance(loaded, np.ndarray):
         raise ArtifactError(
             f"Artifact {entry.artifact_id} does not contain a plain array."

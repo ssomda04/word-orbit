@@ -11,9 +11,12 @@ below exist to guarantee:
 
 1. **Paths are derived, never accepted.** The manifest records the two file
    paths per answer, but they are recomputed from the ``artifact_id`` and
-   compared for exact equality. A manifest therefore cannot address a file
-   outside its root — `..`, an absolute path, and a different spelling of the
-   same path all fail one comparison, with no rule of their own.
+   compared for exact equality. A manifest therefore cannot choose an arbitrary
+   artifact path — `..`, an absolute path, and a different spelling of the same
+   path all fail one comparison, with no rule of their own. That constrains the
+   *path*, not where the bytes ultimately live: a symlink at the canonical
+   location is still followed, which ``docs/ARTIFACT_FORMAT.md`` records as out
+   of scope for the current threat model.
 2. **The vocabulary is verified three ways**, not one: the file must be
    canonical on its own terms, its size must match the manifest, and its sha256
    must match the manifest. Any single mismatch means the stored arrays are

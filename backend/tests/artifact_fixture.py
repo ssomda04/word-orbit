@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import struct
 import unicodedata
 from collections.abc import Callable, Sequence
 from pathlib import Path
@@ -183,3 +184,32 @@ def read_similarity(root: Path, answer: str) -> np.ndarray:
 
 def read_rank(root: Path, answer: str) -> np.ndarray:
     return np.load(root / rank_relative_path(answer), allow_pickle=False)
+
+
+# --- Deliberately malformed files ---------------------------------------------
+
+# `.npy` container, hand-assembled because `np.save` cannot write a broken one.
+# Magic, then a version, then the header length, then the header text itself.
+_NPY_MAGIC = b"\x93NUMPY"
+
+# Version 3.0 decodes its header as UTF-8 (1.0 and 2.0 use latin1, which would
+# turn Korean into mojibake before numpy ever quoted it). It is a real version —
+# numpy writes it whenever a dtype carries non-latin1 field names.
+_NPY_VERSION = (3, 0)
+
+
+def write_npy_with_header(root: Path, answer: str, filename: str, header: str) -> Path:
+    """Replace one of an answer's arrays with a `.npy` carrying `header` verbatim.
+
+    The container is well-formed enough that `np.load` reads the header and then
+    fails on it, which is the point: numpy quotes what it read back into its own
+    exception message. Pass a `header` that embeds a secret to prove the backend
+    does not pass that message along.
+    """
+    body = header.encode("utf-8")
+    body += b" " * (-(len(_NPY_MAGIC) + 2 + 4 + len(body)) % 64) + b"\n"
+    payload = _NPY_MAGIC + bytes(_NPY_VERSION) + struct.pack("<I", len(body)) + body
+
+    path = root / f"artifacts/{artifact_id(answer)[:2]}/{artifact_id(answer)}/{filename}"
+    path.write_bytes(payload)
+    return path

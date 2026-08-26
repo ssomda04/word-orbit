@@ -57,6 +57,10 @@ thousand answers and means nothing else.
 > same directory lists every answer in plain text, and the answer pool is a
 > known, enumerable word list, so anyone holding the root can reverse an id
 > trivially. Treat the root as server-side data; treat the hash as hygiene.
+>
+> It also covers paths only. A library that quotes a file's *contents* back into
+> an error message can still surface an answer from a path that never named one
+> — see [2.5](#25-secrecy).
 
 ### 1.2 `vocabulary.txt`
 
@@ -207,10 +211,19 @@ game will use.
 ### 2.2 Paths are derived, never accepted
 
 The manifest records two paths per answer, but the backend recomputes them from
-`artifact_id` and compares for exact equality. A manifest therefore cannot point
-the server at a file outside its root: absolute paths, `..` traversal, and
-alternate spellings of the same path all fail that one comparison, with no rule
-of their own.
+`artifact_id` and compares for exact equality. **The manifest cannot choose an
+arbitrary artifact path**: absolute paths, `..` traversal, and alternate
+spellings of the same path all fail that one comparison, with no rule of their
+own. The path the backend opens is always the canonical hash-based relative one.
+
+That is a statement about the *path string*, not about where the bytes finally
+come from. If the canonical location is itself a symlink, `is_file()` and
+`np.load` follow it like any other program would, and the data can live outside
+the root. Resolving links and confining them to the root is not implemented, and
+is out of scope for the current threat model: an artifact root is server-side
+data an operator installs, in the same trust position as `FASTTEXT_MODEL_PATH`.
+The check exists to stop a *manifest* from redirecting the server, not to
+sandbox a root against whoever wrote it.
 
 ### 2.3 Why the vocabulary reader is strict
 
@@ -265,12 +278,34 @@ The backend reader therefore:
   what is wrong;
 - has **no "answer not found" exception**: a missing answer is reported by
   returning `None`, which cannot carry a word;
-- relies on paths being hash-only, so a chained `numpy` or JSON error that
-  echoes a filename cannot echo an answer.
+- **sanitizes the `np.load` boundary**: neither numpy's message nor numpy's
+  exception is carried out of it (below).
 
 This is the same policy the rest of the backend follows for the answer word, and
 it is covered by the same style of regression test: every rejection is checked
 against the answer in raw, `repr`, and `unicode_escape` form.
+
+#### The `np.load` boundary
+
+Hash-only paths keep an answer out of a *filename*. They say nothing about a
+file's *contents*, and numpy quotes contents: a `.npy` whose header will not
+parse comes back as `Cannot parse header: {!r}`, `Header is not a dictionary:
+{!r}`, `Header does not contain the correct keys: {!r}`, or `descr is not a
+valid dtype descriptor: {!r}` — the file, verbatim, inside the message.
+
+So a broken array that happens to hold an answer would reach the server log
+twice: once through an interpolated message, and once through the rendered
+`__cause__`, since a load failure mid-game escapes into `app.main`'s
+`INTERNAL_ERROR` handler and is logged with its traceback. The backend therefore
+raises `Could not load artifact <artifact_id> (<ExceptionType>).` and chains
+`from None`, keeping the two things an operator needs — which artifact, and what
+kind of failure — and dropping everything numpy chose to say. It is the same
+treatment `embedding/fasttext_service.py` gives the native FastText boundary.
+
+The catch is deliberately broad, for the same reason it exists: numpy picks its
+own exception types, and at least one of them (`tokenize.TokenError`, from a
+header the tokenizer cannot finish reading) is outside
+`(OSError, ValueError, EOFError)` and would otherwise escape unsanitized.
 
 ### 2.6 What the backend does not validate
 
