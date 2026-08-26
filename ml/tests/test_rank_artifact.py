@@ -13,6 +13,7 @@ import numpy as np
 import pytest
 from contextle_eval.fasttext_provider import FastTextVectorProvider
 from contextle_eval.rank_artifact import (
+    RankArtifact,
     RankArtifactError,
     VocabularyIndex,
     artifact_id_for_answer,
@@ -26,6 +27,7 @@ from contextle_eval.rank_artifact import (
     rank_dtype_for_size,
     save_artifact_npy,
     save_artifact_npz,
+    validate_artifact,
     validate_artifact_root,
     write_artifact_root,
 )
@@ -218,6 +220,123 @@ def test_missing_or_corrupt_manifest_is_rejected(tmp_path: Path, content: str | 
         load_artifact_root_manifest(root)
 
 
+def test_empty_manifest_answers_are_rejected(tmp_path: Path) -> None:
+    root, _ = _write_root(tmp_path)
+    manifest_path = root / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["answers"] = {}
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    with pytest.raises(RankArtifactError, match="non-empty"):
+        load_artifact_root_manifest(root)
+
+
+@pytest.mark.parametrize("invalid_similarity", [1.0001, -1.0001])
+def test_similarity_outside_cosine_range_is_rejected(invalid_similarity: float) -> None:
+    vocabulary, provider = _fixture()
+    artifact = build_artifact(
+        "정답",
+        vocabulary,
+        build_normalized_vector_matrix(vocabulary, provider),
+        embedding_model="fake",
+    )
+    similarities = artifact.similarities.copy()
+    similarities[0] = invalid_similarity
+
+    with pytest.raises(RankArtifactError, match="within"):
+        validate_artifact(
+            RankArtifact(artifact.metadata, similarities, artifact.ranks), vocabulary
+        )
+
+
+def test_similarity_cosine_boundaries_are_accepted() -> None:
+    vocabulary, provider = _fixture()
+    artifact = build_artifact(
+        "정답",
+        vocabulary,
+        build_normalized_vector_matrix(vocabulary, provider),
+        embedding_model="fake",
+    )
+    similarities = artifact.similarities.copy()
+    similarities[0] = -1.0
+    similarities[1] = 1.0
+
+    validate_artifact(
+        RankArtifact(artifact.metadata, similarities, artifact.ranks), vocabulary
+    )
+
+
+@pytest.mark.parametrize("answer_similarity", [0.0, 1.0 - 5e-7])
+def test_answer_self_similarity_contract(answer_similarity: float) -> None:
+    vocabulary, provider = _fixture()
+    artifact = build_artifact(
+        "정답",
+        vocabulary,
+        build_normalized_vector_matrix(vocabulary, provider),
+        embedding_model="fake",
+    )
+    similarities = artifact.similarities.copy()
+    similarities[int(artifact.metadata["answer_vocab_index"])] = answer_similarity
+    candidate = RankArtifact(artifact.metadata, similarities, artifact.ranks)
+
+    if answer_similarity == 0.0:
+        with pytest.raises(RankArtifactError, match="similarity must be 1.0"):
+            validate_artifact(candidate, vocabulary)
+    else:
+        validate_artifact(candidate, vocabulary)
+
+
+def test_missing_answer_error_does_not_reveal_requested_answer(tmp_path: Path) -> None:
+    root, _ = _write_root(tmp_path)
+    hidden_answer = "secret<answer>\n"
+
+    with pytest.raises(RankArtifactError) as exc_info:
+        load_artifact_root_answer(root, hidden_answer)
+
+    message = str(exc_info.value)
+    assert hidden_answer not in message
+    assert repr(hidden_answer) not in message
+    assert "secret<answer>" not in message
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        b"\xef\xbb\xbf",
+        b"\xff",
+        b"\r\n",
+        b" leading\n",
+        b"trailing \n",
+    ],
+    ids=["bom", "malformed-utf8", "crlf", "leading-space", "trailing-space"],
+)
+def test_noncanonical_vocabulary_bytes_are_rejected(
+    tmp_path: Path, payload: bytes
+) -> None:
+    root, _ = _write_root(tmp_path)
+    canonical = (root / "vocabulary.txt").read_bytes()
+    if payload == b"\xef\xbb\xbf":
+        invalid = payload + canonical
+    elif payload == b"\r\n":
+        invalid = canonical.replace(b"\n", payload)
+    elif payload.startswith(b" ") or payload.endswith(b" \n"):
+        invalid = payload + canonical
+    else:
+        invalid = payload
+    (root / "vocabulary.txt").write_bytes(invalid)
+
+    with pytest.raises(RankArtifactError):
+        load_artifact_root_manifest(root)
+
+
+def test_writer_vocabulary_bytes_pass_strict_reader(tmp_path: Path) -> None:
+    root, expected = _write_root(tmp_path)
+
+    _, loaded = load_artifact_root_manifest(root)
+
+    assert loaded == expected
+
+
 def test_corrupt_vocabulary_hash_array_length_and_dtype_are_rejected(
     tmp_path: Path,
 ) -> None:
@@ -269,10 +388,25 @@ def test_real_fasttext_artifact_matches_ranktable() -> None:
         assert index is not None
         expected_ranks[index] = entry.rank
     mismatches = np.flatnonzero(artifact.ranks != expected_ranks)
+    max_delta = max(
+        (
+            abs(int(artifact.ranks[index]) - int(expected_ranks[index]))
+            for index in mismatches
+        ),
+        default=0,
+    )
+    sample = [
+        (
+            vocabulary.words[int(index)],
+            int(artifact.ranks[index]),
+            int(expected_ranks[index]),
+        )
+        for index in mismatches[:10]
+    ]
     assert not len(mismatches), (
         f"rank mismatch count={len(mismatches)}, "
-        f"max delta={max(abs(int(artifact.ranks[i]) - int(expected_ranks[i])) for i in mismatches)}, "
-        f"sample={[(vocabulary.words[int(i)], int(artifact.ranks[i]), int(expected_ranks[i])) for i in mismatches[:10]]}"
+        f"max delta={max_delta}, "
+        f"sample={sample}"
     )
     for index in random.Random(20260823).sample(range(len(vocabulary.words)), 100):
         entry = table.lookup(vocabulary.words[index])
