@@ -1,5 +1,6 @@
 "use client";
 
+import { useRef } from "react";
 import * as THREE from "three";
 
 import {
@@ -7,7 +8,11 @@ import {
   EffectComposer,
 } from "@react-three/postprocessing";
 
-import { Canvas } from "@react-three/fiber";
+import {
+  Canvas,
+  useFrame,
+} from "@react-three/fiber";
+
 import {
   Html,
   Line,
@@ -41,15 +46,235 @@ interface EmbeddingSpaceProps {
 /*
  * 실제 천체 분광형 느낌을 살린 색상.
  */
-const SPECTRAL_COLORS: Record<SpectralType, string> = {
-    M: "#ff4d5d",
-    K: "#ff9838",
-    G: "#ffd84d",
-    F: "#fff1a8",
-    A: "#ffffff",
-    B: "#b8e1ff",
-    O: "#5dbdff",
+const SPECTRAL_COLORS: Record<
+  SpectralType,
+  string
+> = {
+  M: "#ff4d5d",
+  K: "#ff9838",
+  G: "#ffd84d",
+  F: "#fff1a8",
+  A: "#ffffff",
+  B: "#b8e1ff",
+  O: "#5dbdff",
 };
+
+/*
+ * DOM Canvas를 사용하지 않고
+ * Three.js DataTexture로 별 모양을 직접 생성한다.
+ *
+ * 중심:
+ *   밝은 작은 점
+ *
+ * 주변:
+ *   은은한 원형 Glow
+ *
+ * 가로/세로:
+ *   오래된 UI에서 보였던 십자가 형태의 빛줄기
+ */
+function createStarTexture(): THREE.DataTexture {
+  const textureSize = 256;
+
+  const data = new Uint8Array(
+    textureSize * textureSize * 4,
+  );
+
+  const center =
+    (textureSize - 1) / 2;
+
+  for (
+    let y = 0;
+    y < textureSize;
+    y += 1
+  ) {
+    for (
+      let x = 0;
+      x < textureSize;
+      x += 1
+    ) {
+      /*
+       * -1 ~ 1 범위로 좌표 정규화
+       */
+      const dx =
+        (x - center) / center;
+
+      const dy =
+        (y - center) / center;
+
+      const radius = Math.sqrt(
+        dx * dx + dy * dy,
+      );
+
+      /*
+       * 별 중심의 매우 밝은 코어
+       */
+      const core = Math.exp(
+        -(radius * radius) * 650,
+      );
+
+      /*
+       * 중심 주변의 부드러운 빛 번짐
+       */
+      const halo = Math.exp(
+        -(radius * radius) * 22,
+      );
+
+      /*
+       * 좌우로 길게 뻗는 광선.
+       *
+       * dy가 0에 가까울수록 밝고,
+       * 좌우 끝으로 갈수록 천천히 사라진다.
+       */
+      const horizontalRay =
+        Math.exp(
+          -Math.abs(dy) * 115,
+        ) *
+        Math.exp(
+          -Math.abs(dx) * 3.3,
+        );
+
+      /*
+       * 위아래로 길게 뻗는 광선.
+       */
+      const verticalRay =
+        Math.exp(
+          -Math.abs(dx) * 115,
+        ) *
+        Math.exp(
+          -Math.abs(dy) * 3.3,
+        );
+
+      /*
+       * 모든 발광 효과 결합.
+       */
+      const alpha = Math.min(
+        1,
+        core * 1.6 +
+          halo * 0.22 +
+          horizontalRay * 0.72 +
+          verticalRay * 0.72,
+      );
+
+      const index =
+        (y * textureSize + x) * 4;
+
+      /*
+       * 텍스처 자체는 흰색.
+       *
+       * 실제 별 색상은
+       * SpriteMaterial의 color로 입힌다.
+       */
+      data[index] = 255;
+      data[index + 1] = 255;
+      data[index + 2] = 255;
+      data[index + 3] =
+        Math.round(alpha * 255);
+    }
+  }
+
+  const texture =
+    new THREE.DataTexture(
+      data,
+      textureSize,
+      textureSize,
+      THREE.RGBAFormat,
+    );
+
+  texture.needsUpdate = true;
+
+  texture.minFilter =
+    THREE.LinearFilter;
+
+  texture.magFilter =
+    THREE.LinearFilter;
+
+  texture.generateMipmaps = false;
+
+  return texture;
+}
+
+/*
+ * 별보다 훨씬 부드러운 원형 Glow 텍스처.
+ */
+function createGlowTexture(): THREE.DataTexture {
+  const textureSize = 256;
+
+  const data = new Uint8Array(
+    textureSize * textureSize * 4,
+  );
+
+  const center =
+    (textureSize - 1) / 2;
+
+  for (
+    let y = 0;
+    y < textureSize;
+    y += 1
+  ) {
+    for (
+      let x = 0;
+      x < textureSize;
+      x += 1
+    ) {
+      const dx =
+        (x - center) / center;
+
+      const dy =
+        (y - center) / center;
+
+      const radiusSquared =
+        dx * dx + dy * dy;
+
+      /*
+       * 중심에서 바깥으로 부드럽게 사라지는 Glow
+       */
+      const alpha = Math.exp(
+        -radiusSquared * 5.5,
+      );
+
+      const index =
+        (y * textureSize + x) * 4;
+
+      data[index] = 255;
+      data[index + 1] = 255;
+      data[index + 2] = 255;
+      data[index + 3] =
+        Math.round(alpha * 255);
+    }
+  }
+
+  const texture =
+    new THREE.DataTexture(
+      data,
+      textureSize,
+      textureSize,
+      THREE.RGBAFormat,
+    );
+
+  texture.needsUpdate = true;
+
+  texture.minFilter =
+    THREE.LinearFilter;
+
+  texture.magFilter =
+    THREE.LinearFilter;
+
+  texture.generateMipmaps = false;
+
+  return texture;
+}
+
+/*
+ * 모든 별이 같은 텍스처를 공유한다.
+ *
+ * Guess가 많아져도 단어마다 Texture를
+ * 새로 생성하지 않도록 한다.
+ */
+const STAR_TEXTURE =
+  createStarTexture();
+
+const GLOW_TEXTURE =
+  createGlowTexture();
 
 /*
  * 순위를 3D 공간에서 정답 별과의 거리로 변환한다.
@@ -244,6 +469,140 @@ function getPosition(
   ];
 }
 
+interface StarSpriteProps {
+  color: string;
+  glowColor?: string;
+  size: number;
+  selected?: boolean;
+  phase?: number;
+  onClick?: () => void;
+}
+
+/*
+ * 3D 공간에 위치하지만 항상 카메라를 바라보는 별.
+ *
+ * Sprite를 사용하므로 카메라를 회전해도
+ * 십자가 별 모양이 항상 정면으로 유지된다.
+ */
+function StarSprite({
+  color,
+  glowColor = color,
+  size,
+  selected = false,
+  phase = 0,
+  onClick,
+}: StarSpriteProps) {
+  const starRef =
+    useRef<THREE.Sprite>(null);
+
+  const glowRef =
+    useRef<THREE.Sprite>(null);
+
+  /*
+   * 너무 요란하지 않게 아주 약하게만 반짝인다.
+   */
+  useFrame(({ clock }) => {
+    const pulse =
+      1 +
+      Math.sin(
+        clock.elapsedTime * 1.45 +
+          phase,
+      ) *
+        (selected
+          ? 0.035
+          : 0.018);
+
+    if (starRef.current) {
+      const starSize =
+        size * pulse;
+
+      starRef.current.scale.set(
+        starSize,
+        starSize,
+        1,
+      );
+    }
+
+    if (glowRef.current) {
+      const glowSize =
+        size *
+        1.75 *
+        pulse;
+
+      glowRef.current.scale.set(
+        glowSize,
+        glowSize,
+        1,
+      );
+    }
+  });
+
+  return (
+    <>
+      {/*
+       * 넓고 부드러운 바깥쪽 발광
+       */}
+      <sprite
+        ref={glowRef}
+        scale={[
+          size * 1.75,
+          size * 1.75,
+          1,
+        ]}
+      >
+        <spriteMaterial
+          map={GLOW_TEXTURE}
+          color={glowColor}
+          transparent
+          opacity={
+            selected
+              ? 0.32
+              : 0.2
+          }
+          blending={
+            THREE.AdditiveBlending
+          }
+          depthWrite={false}
+          toneMapped={false}
+        />
+      </sprite>
+
+      {/*
+       * 십자가 광선 + 중심 코어
+       */}
+      <sprite
+        ref={starRef}
+        scale={[
+          size,
+          size,
+          1,
+        ]}
+        onClick={(event) => {
+          if (!onClick) {
+            return;
+          }
+
+          event.stopPropagation();
+          onClick();
+        }}
+      >
+        <spriteMaterial
+          map={STAR_TEXTURE}
+          color={color}
+          transparent
+          opacity={1}
+          alphaTest={0.003}
+          blending={
+            THREE.AdditiveBlending
+          }
+          depthWrite={false}
+          toneMapped={false}
+        />
+      </sprite>
+    </>
+  );
+}
+
 interface WordStarProps {
   guess: DisplayGuess;
   index: number;
@@ -252,7 +611,6 @@ interface WordStarProps {
   onSelect: () => void;
 }
 
-
 function WordStar({
   guess,
   index,
@@ -260,19 +618,36 @@ function WordStar({
   best,
   onSelect,
 }: WordStarProps) {
-  const position = getPosition(guess, index);
+  const position =
+    getPosition(
+      guess,
+      index,
+    );
 
   const color =
-    SPECTRAL_COLORS[guess.spectralType];
+    SPECTRAL_COLORS[
+      guess.spectralType
+    ];
 
+  /*
+   * 이전 버전처럼 별 자체는 작게 유지.
+   *
+   * 텍스처 전체 크기 안에서
+   * 중심 코어는 훨씬 작기 때문에
+   * 실제 화면에서는 작은 별 + 긴 광선 형태로 보인다.
+   */
   const size = selected
-    ? 0.18
+    ? 0.74
     : best
-      ? 0.16
-      : 0.13;
+      ? 0.66
+      : 0.58;
 
   return (
     <group position={position}>
+      {/*
+       * 선택된 단어에서
+       * 정답 원점으로 이어지는 선
+       */}
       {selected && (
         <Line
           points={[
@@ -285,48 +660,19 @@ function WordStar({
           ]}
           color={color}
           transparent
-          opacity={0.2}
+          opacity={0.16}
           lineWidth={1}
         />
       )}
 
-      {/* 별빛 바깥 Glow */}
-      <mesh scale={2.2}>
-        <sphereGeometry args={[size, 24, 24]} />
-
-        <meshBasicMaterial
-          color={color}
-          transparent
-          opacity={0.18}
-          blending={THREE.AdditiveBlending}
-          depthWrite={false}
-        />
-      </mesh>
-
-      {/* 실제 별 */}
-      <mesh
-        onClick={(event) => {
-          event.stopPropagation();
-          onSelect();
-        }}
-      >
-        <sphereGeometry args={[size, 32, 32]} />
-
-        <meshBasicMaterial
-          color={color}
-          toneMapped={false}
-        />
-      </mesh>
-
-      {/* 아주 밝은 흰 중심 */}
-      <mesh scale={0.4}>
-        <sphereGeometry args={[size, 24, 24]} />
-
-        <meshBasicMaterial
-          color="#ffffff"
-          toneMapped={false}
-        />
-      </mesh>
+      <StarSprite
+        color={color}
+        glowColor={color}
+        size={size}
+        selected={selected}
+        phase={index * 0.83}
+        onClick={onSelect}
+      />
 
       <Html
         center
@@ -337,12 +683,18 @@ function WordStar({
       >
         <div
           style={{
-            transform: "translateY(20px)",
+            transform:
+              "translateY(20px)",
             whiteSpace: "nowrap",
-            fontSize: selected ? "13px" : "11px",
-            fontWeight: selected ? 700 : 500,
+            fontSize: selected
+              ? "13px"
+              : "11px",
+            fontWeight: selected
+              ? 700
+              : 500,
             color: "#f4f8ff",
-            textShadow: `0 0 7px ${color}`,
+            textShadow:
+              `0 0 7px ${color}`,
           }}
         >
           {guess.word}
@@ -360,38 +712,13 @@ function WordStar({
 function AnswerStar() {
   return (
     <group position={[0, 0, 0]}>
-      {/* 넓은 푸른 Glow */}
-      <mesh scale={2.8}>
-        <sphereGeometry args={[0.25, 32, 32]} />
-
-        <meshBasicMaterial
-          color="#9dd7ff"
-          transparent
-          opacity={0.22}
-          blending={THREE.AdditiveBlending}
-          depthWrite={false}
-        />
-      </mesh>
-
-      {/* 흰색 중심 */}
-      <mesh>
-        <sphereGeometry args={[0.26, 32, 32]} />
-
-        <meshBasicMaterial
-          color="#ffffff"
-          toneMapped={false}
-        />
-      </mesh>
-
-      {/* 가장 밝은 코어 */}
-      <mesh scale={0.4}>
-        <sphereGeometry args={[0.26, 24, 24]} />
-
-        <meshBasicMaterial
-          color="#ffffff"
-          toneMapped={false}
-        />
-      </mesh>
+      <StarSprite
+        color="#ffffff"
+        glowColor="#8fd0ff"
+        size={0.92}
+        selected
+        phase={1.4}
+      />
 
       <Html
         center
@@ -402,7 +729,8 @@ function AnswerStar() {
       >
         <div
           style={{
-            transform: "translateY(30px)",
+            transform:
+              "translateY(30px)",
             whiteSpace: "nowrap",
             color: "#ffffff",
             fontSize: "11px",
@@ -443,6 +771,10 @@ export default function EmbeddingSpace({
           near: 0.1,
           far: 100,
         }}
+        gl={{
+          alpha: true,
+          antialias: true,
+        }}
       >
         {/*
          * 기본 배경은 CSS 우주 배경이 보이도록
@@ -450,30 +782,31 @@ export default function EmbeddingSpace({
          */}
 
         <ambientLight
-          intensity={0.35}
+          intensity={0.25}
         />
 
         {/*
          * 배경 작은 별.
+         *
+         * 주인공인 추측 단어 별보다
+         * 너무 밝지 않게 유지한다.
          */}
         <Stars
           radius={45}
           depth={30}
           count={1500}
-          factor={2.6}
-          saturation={0.15}
+          factor={2.2}
+          saturation={0.1}
           fade
-          speed={0.12}
-/>
+          speed={0.1}
+        />
 
         <AnswerStar />
 
         {guesses.map(
           (guess, index) => (
             <WordStar
-              key={
-                guess.guessId
-              }
+              key={guess.guessId}
               guess={guess}
               index={index}
               selected={
@@ -493,11 +826,19 @@ export default function EmbeddingSpace({
           ),
         )}
 
+        {/*
+         * Sprite 자체에 Glow가 있기 때문에
+         * Bloom을 너무 세게 적용하면
+         * 예쁜 십자가 모양이 뭉개진다.
+         *
+         * 기존 1.8에서 조금 낮춰
+         * 중심부만 추가로 반짝이도록 조정.
+         */}
         <EffectComposer>
           <Bloom
-            intensity={1.8}
-            luminanceThreshold={0.15}
-            luminanceSmoothing={0.85}
+            intensity={1.15}
+            luminanceThreshold={0.25}
+            luminanceSmoothing={0.9}
             mipmapBlur
           />
         </EffectComposer>
@@ -505,7 +846,7 @@ export default function EmbeddingSpace({
         {/*
          * 마우스 컨트롤
          *
-         * 왼쪽 드래그 → 회전
+         * 왼쪽 드래그 → 3D 회전
          * 휠 → 확대/축소
          */}
         <OrbitControls
