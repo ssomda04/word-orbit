@@ -148,4 +148,5 @@ def write_provisional_pool(path: Path, entries: Sequence[ProvisionalPoolEntry]) 
         if "\n" in entry.word or "\r" in entry.word:
             raise ProvisionalAnswerPoolError(f"Word contains a line break: {entry.word!r}")
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("".join(f"{entry.word}\n" for entry in entries), encoding="utf-8")
+    payload = "".join(f"{entry.word}\n" for entry in entries).encode("utf-8")
+    path.write_bytes(payload)

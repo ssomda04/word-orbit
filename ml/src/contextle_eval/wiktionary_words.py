@@ -307,7 +307,8 @@ def extract_dump(dump_path: Path, output_path: Path) -> ExtractionStats:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     temporary_path = output_path.with_name(f".{output_path.name}.{os.getpid()}.tmp")
     try:
-        temporary_path.write_text("".join(f"{word}\n" for word in words), encoding="utf-8")
+        payload = "".join(f"{word}\n" for word in words).encode("utf-8")
+        temporary_path.write_bytes(payload)
         temporary_path.replace(output_path)
     except OSError as exc:
         with contextlib.suppress(OSError):
