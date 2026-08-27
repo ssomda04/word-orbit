@@ -1,0 +1,83 @@
+{
+  "answers": {
+    "거인": {
+      "answer_vocab_index": 2265,
+      "artifact_id": "0e01b534b56864a2fd78e9e0882123b3c38b6bf21789f35ca30f89476500ed06",
+      "rank_path": "artifacts/0e/0e01b534b56864a2fd78e9e0882123b3c38b6bf21789f35ca30f89476500ed06/rank.npy",
+      "similarity_path": "artifacts/0e/0e01b534b56864a2fd78e9e0882123b3c38b6bf21789f35ca30f89476500ed06/similarity.npy"
+    },
+    "공동": {
+      "answer_vocab_index": 4109,
+      "artifact_id": "819219f735f0320c997a44dc7cdbcb31390649497cdfac0c7c99c26d1237c70c",
+      "rank_path": "artifacts/81/819219f735f0320c997a44dc7cdbcb31390649497cdfac0c7c99c26d1237c70c/rank.npy",
+      "similarity_path": "artifacts/81/819219f735f0320c997a44dc7cdbcb31390649497cdfac0c7c99c26d1237c70c/similarity.npy"
+    },
+    "돌아가다": {
+      "answer_vocab_index": 14069,
+      "artifact_id": "1152d7a56fb1600a57741ae74298682e5679ca78d0d9d90fb58d1266f5f9cdc5",
+      "rank_path": "artifacts/11/1152d7a56fb1600a57741ae74298682e5679ca78d0d9d90fb58d1266f5f9cdc5/rank.npy",
+      "similarity_path": "artifacts/11/1152d7a56fb1600a57741ae74298682e5679ca78d0d9d90fb58d1266f5f9cdc5/similarity.npy"
+    },
+    "뛰어나다": {
+      "answer_vocab_index": 15593,
+      "artifact_id": "d7b1acf8ccdbda574e717d45e90d0857b0a673397d3faace96651f2f821963ec",
+      "rank_path": "artifacts/d7/d7b1acf8ccdbda574e717d45e90d0857b0a673397d3faace96651f2f821963ec/rank.npy",
+      "similarity_path": "artifacts/d7/d7b1acf8ccdbda574e717d45e90d0857b0a673397d3faace96651f2f821963ec/similarity.npy"
+    },
+    "믿다": {
+      "answer_vocab_index": 19804,
+      "artifact_id": "03fdf42bef953df48966005faec2a2e1ec93c47edf788ae4c2ebd089b4dfae45",
+      "rank_path": "artifacts/03/03fdf42bef953df48966005faec2a2e1ec93c47edf788ae4c2ebd089b4dfae45/rank.npy",
+      "similarity_path": "artifacts/03/03fdf42bef953df48966005faec2a2e1ec93c47edf788ae4c2ebd089b4dfae45/similarity.npy"
+    },
+    "아무래도": {
+      "answer_vocab_index": 35206,
+      "artifact_id": "f5dbee1c946c5e6b1fa77e06c3cd951a0441218bd8eb151249aea93198d3f926",
+      "rank_path": "artifacts/f5/f5dbee1c946c5e6b1fa77e06c3cd951a0441218bd8eb151249aea93198d3f926/rank.npy",
+      "similarity_path": "artifacts/f5/f5dbee1c946c5e6b1fa77e06c3cd951a0441218bd8eb151249aea93198d3f926/similarity.npy"
+    },
+    "엎드리다": {
+      "answer_vocab_index": 38125,
+      "artifact_id": "96276df0293f6631a79951b86ffab4e59a535ab284acfa2cdfdd2db0e4d177b1",
+      "rank_path": "artifacts/96/96276df0293f6631a79951b86ffab4e59a535ab284acfa2cdfdd2db0e4d177b1/rank.npy",
+      "similarity_path": "artifacts/96/96276df0293f6631a79951b86ffab4e59a535ab284acfa2cdfdd2db0e4d177b1/similarity.npy"
+    },
+    "정확히": {
+      "answer_vocab_index": 46123,
+      "artifact_id": "cb6faff87f33ac0932ec87d65f84f59e0fc4fdfc0f9f64b9cffebe01fa27494b",
+      "rank_path": "artifacts/cb/cb6faff87f33ac0932ec87d65f84f59e0fc4fdfc0f9f64b9cffebe01fa27494b/rank.npy",
+      "similarity_path": "artifacts/cb/cb6faff87f33ac0932ec87d65f84f59e0fc4fdfc0f9f64b9cffebe01fa27494b/similarity.npy"
+    },
+    "주변": {
+      "answer_vocab_index": 47145,
+      "artifact_id": "09bfd0c3a7d1a7b22fbde91dd69b843fd48326b17b6d685b1357ad4588b9c7db",
+      "rank_path": "artifacts/09/09bfd0c3a7d1a7b22fbde91dd69b843fd48326b17b6d685b1357ad4588b9c7db/rank.npy",
+      "similarity_path": "artifacts/09/09bfd0c3a7d1a7b22fbde91dd69b843fd48326b17b6d685b1357ad4588b9c7db/similarity.npy"
+    },
+    "훌륭하다": {
+      "answer_vocab_index": 59046,
+      "artifact_id": "086a96db168cd21a589e2f18d692554231fa5a3d49ea7ceb16ebbb4ddcdf2bb4",
+      "rank_path": "artifacts/08/086a96db168cd21a589e2f18d692554231fa5a3d49ea7ceb16ebbb4ddcdf2bb4/rank.npy",
+      "similarity_path": "artifacts/08/086a96db168cd21a589e2f18d692554231fa5a3d49ea7ceb16ebbb4ddcdf2bb4/similarity.npy"
+    }
+  },
+  "artifact_id_algorithm": "sha256-nfkc-utf8",
+  "embedding_model": {
+    "name": "fasttext-cc-ko-300",
+    "source": "cc.ko.300.bin"
+  },
+  "rank_dtype": "uint16",
+  "ranking_policy": {
+    "answer_rank": 1,
+    "metric": "cosine",
+    "order": "similarity_desc",
+    "tie_break": "lexical"
+  },
+  "schema_version": "1.0",
+  "similarity_dtype": "float32",
+  "vocabulary": {
+    "path": "vocabulary.txt",
+    "sha256": "92f4fb52259e7f708610609b2f883c46a7a5edb3d11ab0ac933f336d09734a9d",
+    "size": 59582
+  }
+}

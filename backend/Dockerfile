@@ -35,6 +35,19 @@ RUN groupadd --gid 10001 appuser \
 COPY --chown=appuser:appuser pyproject.toml uv.lock* ./
 RUN uv sync --no-dev
 
+# --- Artifact layer ---
+# The rank artifact root(s) this image can serve from (docs/ARTIFACT_FORMAT.md).
+# Copied before the application because it changes far less often: an ordinary
+# code edit then rebuilds only the layer below, leaving this one cached.
+#
+# `ARTIFACT_ROOT` is deliberately not set here. The image ships the data and
+# stays deployment-target agnostic; whether it reads from it at all is the
+# environment's decision (`SCORING_PROVIDER`), like every other setting.
+#
+# No FastText model, and no FastText dependency, arrives with it — the arrays
+# were computed offline and numpy reads them. See the header comment.
+COPY --chown=appuser:appuser artifacts ./artifacts
+
 # --- Application layer ---
 COPY --chown=appuser:appuser app ./app
 

@@ -1,0 +1,32 @@
+# ---------------------------------------------------------------------------
+# Root .gitattributes for the Contextle monorepo.
+# ---------------------------------------------------------------------------
+
+# --- Rank artifact roots (docs/ARTIFACT_FORMAT.md) ---
+# These files are hash-verified data, not source. `vocabulary.txt` is the exact
+# byte sequence whose sha256 `manifest.json` records, and the backend refuses a
+# root whose vocabulary is not byte-identical to canonical form
+# (backend/app/services/scoring/artifact/vocabulary.py).
+#
+# Git's autocrlf would rewrite it. `vocabulary.txt` is detected as text, so on a
+# checkout with `core.autocrlf=true` — the Windows default, and what this repo is
+# developed on — every one of its 59,582 lines gains a CR, the sha256 changes,
+# and the server fails startup on a file nobody edited. `-text` disables that
+# conversion in both directions, so the bytes committed are the bytes checked
+# out on every platform.
+#
+# The `.npy` arrays are already detected as binary and pass through unchanged;
+# they are covered anyway rather than left to a content heuristic.
+#
+# `binary` rather than a bare `-text` (it means `-text -diff -merge`), for two
+# reasons beyond the byte preservation both give:
+#
+#   - `manifest.json` arrives from the producer with CRLF line endings. Those
+#     bytes are part of the delivered artifact and are left alone, but a file
+#     git still diffs as *text* reports every one of its CRs as trailing
+#     whitespace — 83 spurious `git diff --check` errors on a file nobody is
+#     going to hand-edit.
+#   - Nothing here is reviewed by reading a diff. A changed root is verified by
+#     its sha256 and by `load_manifest`, so a 59,582-line textual diff of
+#     `vocabulary.txt` is noise in every review it ever appears in.
+backend/artifacts/** binary

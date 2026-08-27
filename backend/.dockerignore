@@ -6,6 +6,11 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 .mypy_cache/
+
+# Agent tooling runtime state. It is gitignored, but `COPY artifacts ./artifacts`
+# would otherwise carry a stray `.omc/` written anywhere under the context into
+# the image.
+**/.omc/
 .env
 .env.*
 !.env.example
