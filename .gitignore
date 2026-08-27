@@ -70,6 +70,18 @@ models/
 checkpoints/
 .ipynb_checkpoints/
 
+# --- Deployment smoke artifact (narrow exception to `*.npy` above) ---
+# `backend/artifacts/` holds the small rank-artifact root that ships *inside*
+# the backend image, because Docker `COPY` cannot reach outside the build
+# context (docs/DEPLOYMENT.md). It is deployment data, not ML output: ~4 MiB
+# over 20 arrays, versioned so the image is reproducible from the commit alone.
+#
+# Scoped to this directory on purpose. The rule above still keeps every array
+# under `ml/` out of Git, and this exception is NOT a policy that artifact roots
+# belong in the repository — the final production root is far larger and needs
+# a real distribution channel (see docs/DEPLOYMENT.md).
+!backend/artifacts/**/*.npy
+
 # --- Docker ---
 # (compose files and Dockerfiles are committed; local overrides are not)
 docker-compose.override.yml

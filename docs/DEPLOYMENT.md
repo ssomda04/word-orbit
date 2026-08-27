@@ -4,12 +4,19 @@ How Contextle is deployed: **frontend → Vercel**, **backend → Railway** (Doc
 image). This document is the deployment contract — what the platform provides,
 what this repository provides, and which variables must never be set by hand.
 
-> **Status — Phase 1 of 2.** The image is hardened for Railway and production
-> currently serves **embedding mode on the deterministic mock**. Artifact mode is
-> fully implemented in the backend but **not deployed in Phase 1**. A validated
-> 10-answer smoke artifact root is supplied separately and ships in Phase 2, for
-> end-to-end verification — it is not the final production answer pool.
-> See [Phase 2](#phase-2--artifact-mode).
+> **Status — Phase 2, verified locally, not yet applied to Railway.** The image
+> now *contains* the 10-answer smoke artifact root
+> ([§9](#9-the-shipped-smoke-artifact-root)) and has been verified end to end in
+> artifact mode against a local container, including a value-for-value match
+> between the API's `similarity`/`rank` and the stored `.npy` arrays.
+>
+> Railway still serves **embedding mode on the deterministic mock**. Applying
+> [§3.2](#32-artifact-mode-phase-2) is the one remaining step, and it is a
+> configuration change — the image already carries everything it needs.
+>
+> The smoke root is a *verification* root — **not the final production answer
+> pool**, which follows once the corpus work lands
+> ([MODEL_EVALUATION.md](./MODEL_EVALUATION.md)).
 
 ---
 
@@ -66,19 +73,23 @@ because no `VOCABULARY_PATH` is configured. That is a valid API response
 
 ### 3.2 Artifact mode (Phase 2)
 
-Apply these in Phase 2, once the smoke artifact root ships inside the image.
-Setting `SCORING_PROVIDER=artifact` without a valid `ARTIFACT_ROOT` fails startup
-by design — the server will not boot.
+The root now ships inside the image ([§9](#9-the-shipped-smoke-artifact-root)),
+so these are ready to apply. Setting `SCORING_PROVIDER=artifact` without a valid
+`ARTIFACT_ROOT` fails startup by design — the server will not boot.
 
 | Key | Value | Required |
 | --- | --- | --- |
+| `APP_ENV` | `production` | ✅ Unchanged from [§3.1](#31-currently-deployed-phase-1--embedding--mock). |
 | `SCORING_PROVIDER` | `artifact` | ✅ Without it the server silently stays on embedding/mock. |
-| `ARTIFACT_ROOT` | `/app/artifacts/smoke` | ✅ Absolute path **inside the container**. Valid only after the artifact ships in the image. |
-| `ARTIFACT_CACHE_SIZE` | `64` | ⬜ Defaults to `64`. Roughly `N × vocabulary_size × 6` bytes. |
+| `ARTIFACT_ROOT` | `/app/artifacts/smoke` | ✅ Absolute path **inside the container**, not a host path. |
+| `ARTIFACT_CACHE_SIZE` | `64` | ⬜ Defaults to `64`. Roughly `N × vocabulary_size × 6` bytes — about 23 MB at this vocabulary, and the root only holds ten answers. |
+| `FRONTEND_ORIGIN` | `https://<vercel-production-domain>` | ✅ Unchanged. See [§5](#5-cors-and-the-frontend-origin). |
 
 In artifact mode `EMBEDDING_PROVIDER`, `FASTTEXT_MODEL_PATH`, `VOCABULARY_PATH`
 and `RANK_CACHE_SIZE` are all unused — no model is loaded at all. Leave them
-unset rather than set-and-ignored, so the configuration says what it does.
+unset rather than set-and-ignored, so the configuration says what it does; that
+includes **removing** the `EMBEDDING_PROVIDER` from
+[§3.1](#31-currently-deployed-phase-1--embedding--mock) when the switch is made.
 
 ### 3.3 Never set these
 
@@ -260,47 +271,167 @@ curl -s http://localhost:8000/health
 docker compose down
 ```
 
+### 8.1 Artifact mode, locally
+
+The same image, with the artifact-mode environment from
+[§3.2](#32-artifact-mode-phase-2). `PORT` is set here only because nothing else
+assigns one locally; on Railway it stays unset ([§3.3](#33-never-set-these)).
+
+```bash
+docker build -t contextle-backend:artifact-smoke ./backend
+
+# the root is inside the image, owned by the runtime user
+docker run --rm contextle-backend:artifact-smoke sh -c \
+  'ls -ln /app/artifacts/smoke; wc -l < /app/artifacts/smoke/vocabulary.txt;
+   find /app/artifacts -name "*.npy" | wc -l'
+#   -> files owned by 10001; 59582; 20
+
+# no model ships with it, and none is loaded
+docker run --rm contextle-backend:artifact-smoke \
+  python -c "import importlib.util; print(importlib.util.find_spec('fasttext'))"
+#   -> None
+
+docker run -d --name artifact-smoke -p 9000:9000 \
+  -e PORT=9000 \
+  -e APP_ENV=production \
+  -e SCORING_PROVIDER=artifact \
+  -e ARTIFACT_ROOT=/app/artifacts/smoke \
+  -e ARTIFACT_CACHE_SIZE=64 \
+  -e FRONTEND_ORIGIN=http://localhost:3000 \
+  contextle-backend:artifact-smoke
+
+curl -s http://localhost:9000/health                      # {"status":"ok"}
+docker logs artifact-smoke 2>&1 | grep -E "Started (parent|server) process"
+#   -> "Started server process [1]" only
+
+# a game, an in-vocabulary guess, and an out-of-vocabulary guess (§9.1)
+GAME=$(curl -s -X POST http://localhost:9000/api/games \
+  | python -c "import sys,json;print(json.load(sys.stdin)['gameId'])")
+curl -s -X POST http://localhost:9000/api/games/$GAME/guesses \
+  -H 'content-type: application/json' -d '{"word":"가가"}'
+#   -> 200 with a float similarity and an integer rank
+curl -s -o /dev/null -w '%{http_code}\n' -X POST \
+  http://localhost:9000/api/games/$GAME/guesses \
+  -H 'content-type: application/json' -d '{"word":"없는말뷁"}'
+#   -> 400 (INVALID_WORD)
+
+docker rm -f artifact-smoke
+```
+
+> **On Git Bash / MSYS (Windows), two things bite:**
+>
+> - Prefix `docker run` with `MSYS_NO_PATHCONV=1`. Otherwise
+>   `-e ARTIFACT_ROOT=/app/artifacts/smoke` is rewritten to a Windows path before
+>   Docker sees it, and startup fails with `ARTIFACT_ROOT is not a directory`.
+> - An inline `-d '{"word":"가가"}'` can reach curl re-encoded out of UTF-8, and
+>   the server answers `{"detail":"There was an error parsing the body"}` — a
+>   *body* error that happens to share the `400` status with a genuine
+>   `INVALID_WORD`, so it will quietly counterfeit the OOV result. Send the body
+>   from a UTF-8 file instead, and read the response envelope rather than the
+>   status alone:
+>
+>   ```bash
+>   printf '{"word":"가가"}' > /tmp/in.json
+>   curl -s -X POST http://localhost:9000/api/games/$GAME/guesses \
+>     -H 'content-type: application/json' --data-binary @/tmp/in.json
+>   ```
+>
+>   A real out-of-vocabulary rejection is `{"code":"INVALID_WORD",…}`.
+
+The check that actually proves artifact mode is serving stored data is
+[§9.2](#92-verifying-the-api-serves-the-stored-arrays).
+
 ---
 
-## Phase 2 — artifact mode
+## 9. The shipped smoke artifact root
 
-Production scoring moves to a precomputed **rank artifact root**
-([ARTIFACT_FORMAT.md](./ARTIFACT_FORMAT.md)), which the backend already
-implements end to end.
+Production scoring reads a precomputed **rank artifact root**
+([ARTIFACT_FORMAT.md](./ARTIFACT_FORMAT.md)) instead of a live model. One such
+root ships inside the image, at `/app/artifacts/smoke`, built from
+`backend/artifacts/smoke/` in the build context.
 
-A validated **10-answer smoke artifact root** is supplied separately by the ML
-area. It is a verification root, sized to prove the deployment path end to end —
-**not the final production answer pool**, which follows once the corpus work
-lands ([MODEL_EVALUATION.md](./MODEL_EVALUATION.md)).
+> **This is not the final production answer pool.** It is a *verification* root:
+> ten answers, enough to prove the deployment path end to end and no more. The
+> production pool follows once the corpus work lands
+> ([MODEL_EVALUATION.md](./MODEL_EVALUATION.md)) and will be far too large to
+> ship this way — it needs a real distribution channel, not a `COPY`.
 
-Artifact roots are data, not source, so the root is delivered rather than
-generated here: a synthetic root would prove the plumbing works while telling us
-nothing about the numbers the game actually serves.
+| Property | Value |
+| --- | --- |
+| Root inside the container | `/app/artifacts/smoke` |
+| Root in the repository | [`backend/artifacts/smoke/`](../backend/artifacts/smoke/) |
+| `schema_version` | `1.0` |
+| Answers | 10 |
+| Vocabulary | 59,582 words |
+| Vocabulary SHA-256 | `92f4fb52259e7f708610609b2f883c46a7a5edb3d11ab0ac933f336d09734a9d` |
+| `similarity_dtype` | `float32` |
+| `rank_dtype` | `uint16` |
+| `embedding_model` | `fasttext-cc-ko-300` (`cc.ko.300.bin`) — used **offline**, never shipped |
+| `.npy` files | 20 (a `similarity.npy` + `rank.npy` per answer) |
+| Total files | 22 (20 arrays + `manifest.json` + `vocabulary.txt`) |
+| Uncompressed size | ~4.05 MiB (4,249,250 bytes) |
 
-**Phase 2 is:**
+The ten answer words are not repeated here — they are in `manifest.json`, which
+is the source of truth, and a deployment document is a poor place to duplicate
+game secrets. The root is server-side data: `manifest.json` lists every answer in
+plain text, so anyone with the image has them ([ARTIFACT_FORMAT.md §1.1](./ARTIFACT_FORMAT.md#11-artifact_id)).
 
-1. Place the supplied root at `backend/artifacts/smoke/` — inside the Docker build
-   context, which is the only place `COPY` can reach ([§2](#2-railway-service-configuration)).
-2. Add `!backend/artifacts/**/*.npy` to the root [`.gitignore`](../.gitignore).
-   The global `*.npy` rule blocks the arrays; the negation works here because no
-   parent directory of `backend/artifacts/` is itself excluded.
-3. Add `COPY --chown=appuser:appuser artifacts ./artifacts` to
-   [`backend/Dockerfile`](../backend/Dockerfile), **before** `COPY … app ./app` so
-   an application change does not invalidate the artifact layer. The user already
-   exists at that point in the file, so the name-based `--chown` resolves.
-4. Set the artifact-mode variables from [§3.2](#32-artifact-mode-phase-2)
-   and redeploy.
-5. Extend the smoke test in [§7](#7-smoke-test):
-   - Pick the probe words from the shipped `vocabulary.txt`, rather than assuming
-     any particular word is in it. Both probes must satisfy the guess rules — no
-     internal whitespace, at most 50 characters — because an out-of-vocabulary
-     guess and a malformed one both return `400 INVALID_WORD` with the same
-     message, so a malformed probe would prove nothing.
-   - Compare the returned `similarity` and `rank` against the values stored in the
-     root's `.npy` files. Nothing in the request path rounds, so the match is
-     exact. `rank` merely being an integer is weak evidence; a value-for-value
-     match is what shows the API is serving the stored artifact.
+The arrays are versioned in Git through a narrow exception to the global `*.npy`
+rule in the root [`.gitignore`](../.gitignore), scoped to `backend/artifacts/`.
+That exception is about *this* 4 MiB root, not a policy that artifact roots
+belong in the repository.
 
-Steps 1–3 are deliberately absent from Phase 1: the root ships with Phase 2, and
-adding `COPY artifacts ./artifacts` while the directory is absent breaks the
-build for everyone.
+### 9.1 Probe words
+
+Both probes are selected **from the shipped `vocabulary.txt`**, never assumed. An
+out-of-vocabulary guess and a malformed one both return `400 INVALID_WORD` with
+the same message, so a probe that happened to be malformed would prove nothing —
+each must satisfy the guess rules in `app/domain/game.py`: non-blank, no internal
+whitespace, at most 50 characters, and unchanged by NFKC normalization.
+
+| Probe | Word | Chosen by |
+| --- | --- | --- |
+| IN | `가가` | First word in canonical `vocabulary.txt` order that is at least two characters, is a legal guess, and is **not** one of the ten answers. Vocabulary index `1`. |
+| OOV | `없는말뷁` | First generated candidate absent from `vocabulary.txt` that is still a legal guess. |
+
+Re-select them rather than trusting this table if the root is ever replaced: both
+are facts about *this* vocabulary, and the IN probe must keep being a non-answer.
+
+### 9.2 Verifying the API serves the stored arrays
+
+`rank` merely coming back as an integer is weak evidence. Nothing in the request
+path rounds — `AnswerArtifact.score_at` returns `float(similarity[i])` and
+`int(rank[i])` — so the API value must equal the stored value **exactly**, with
+no tolerance.
+
+The check that does not require knowing the answer: submit the IN probe, then
+read `similarity[<probe index>]` and `rank[<probe index>]` out of each of the ten
+answers' `.npy` files. The response must equal exactly one of those ten
+candidate pairs — which both proves the value is the stored one and identifies
+which answer the game drew, without the answer ever being logged.
+
+Guessing that answer must then return `similarity == 1.0`, `rank == 1`, and a
+`won` game, matching that answer's own self-row in its arrays.
+
+---
+
+## 10. Applying artifact mode to Railway
+
+The image already carries the root and has been verified locally
+([§8.1](#81-artifact-mode-locally), [§9.2](#92-verifying-the-api-serves-the-stored-arrays)),
+so what remains is configuration:
+
+1. Set the [§3.2](#32-artifact-mode-phase-2) variables and remove
+   `EMBEDDING_PROVIDER`.
+2. Redeploy, then check the deploy log for the worker signature
+   ([§4](#4-why-one-process-is-a-correctness-requirement)) and for the absence of
+   any artifact error — a bad `ARTIFACT_ROOT` stops the process at startup rather
+   than degrading to mock, so a service that is up is a service that validated
+   its root.
+3. Run the smoke test in [§7](#7-smoke-test) with the [§9.1](#91-probe-words)
+   probes: the IN probe must return an integer `rank`, and the OOV probe must
+   return `400 INVALID_WORD`. In embedding mode the OOV probe would have scored
+   normally, so that `400` is the signal that the switch actually took effect.
+
+Do not add `PORT`, `WEB_CONCURRENCY`, or `FASTTEXT_MODEL_PATH`
+([§3.3](#33-never-set-these)) — the last one has nothing to load in this image.
