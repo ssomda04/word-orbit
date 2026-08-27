@@ -63,7 +63,11 @@ pytest
 docker compose up --build backend
 ```
 
-The image runs as a non-root user and ships a `/health` `HEALTHCHECK`.
+The image runs as a non-root user and ships a `/health` `HEALTHCHECK`. It binds
+`$PORT` (default `8000`) and always runs a **single** uvicorn worker, because game
+state is in-memory and per-process. Deploying it — the platform contract, the
+environment variables, and the variables that must never be set — is
+[../docs/DEPLOYMENT.md](../docs/DEPLOYMENT.md).
 
 ## Environment
 
