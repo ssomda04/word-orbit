@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+import importlib.util
 import json
 import math
 from pathlib import Path
@@ -17,6 +18,12 @@ from contextle_eval.genre_frequency import (
     load_genre_frequency_csv,
     load_production_genre_frequency,
 )
+
+SCRIPT_PATH = Path(__file__).resolve().parents[1] / "scripts" / "compare_genre_frequency.py"
+SPEC = importlib.util.spec_from_file_location("compare_genre_frequency", SCRIPT_PATH)
+assert SPEC is not None and SPEC.loader is not None
+compare_genre_frequency = importlib.util.module_from_spec(SPEC)
+SPEC.loader.exec_module(compare_genre_frequency)
 
 
 def _fixture() -> tuple[GenreFrequencyRecord, ...]:
@@ -206,3 +213,68 @@ def test_production_adapter_rejects_csv_report_count_mismatch(tmp_path: Path) ->
 
     with pytest.raises(GenreFrequencyError, match="do not equal"):
         load_production_genre_frequency(frequency_path, report_path, "dialogue")
+
+
+def _write_production_report(path: Path, genre: str, assignments: int = 1) -> None:
+    path.write_text(
+        json.dumps(
+            {
+                "schema_version": "1.0",
+                "source": genre,
+                "frequency": {"assignments": assignments},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+
+def test_production_adapter_normalizes_missing_row_value(tmp_path: Path) -> None:
+    frequency_path = tmp_path / "short.csv"
+    frequency_path.write_text("canonical_form,count\n단어\n", encoding="utf-8")
+    report_path = tmp_path / "report.json"
+    _write_production_report(report_path, "dialogue")
+
+    with pytest.raises(GenreFrequencyError, match=r"row 2.*invalid count"):
+        load_production_genre_frequency(frequency_path, report_path, "dialogue")
+
+
+def test_production_adapter_normalizes_malformed_csv(tmp_path: Path) -> None:
+    frequency_path = tmp_path / "malformed.csv"
+    frequency_path.write_text(
+        'canonical_form,count\n"unterminated,1\n', encoding="utf-8"
+    )
+    report_path = tmp_path / "report.json"
+    _write_production_report(report_path, "online")
+
+    with pytest.raises(GenreFrequencyError, match=r"malformed\.csv.*row 2"):
+        load_production_genre_frequency(frequency_path, report_path, "online")
+
+
+def test_cli_uses_domain_error_path_for_malformed_production_csv(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    paths: dict[str, Path] = {}
+    for genre in ("newspaper", "dialogue", "online"):
+        frequency_path = tmp_path / f"{genre}.csv"
+        frequency_path.write_text("canonical_form,count\n단어,1\n", encoding="utf-8")
+        report_path = tmp_path / f"{genre}.json"
+        _write_production_report(report_path, genre)
+        paths[genre] = frequency_path
+        paths[f"{genre}_report"] = report_path
+    paths["newspaper"].write_text(
+        'canonical_form,count\n"unterminated,1\n', encoding="utf-8"
+    )
+
+    argv: list[str] = []
+    for genre in ("newspaper", "dialogue", "online"):
+        argv.extend((f"--{genre}", str(paths[genre])))
+        argv.extend((f"--{genre}-report", str(paths[f"{genre}_report"])))
+    argv.extend(("--output", str(tmp_path / "output.csv")))
+
+    result = compare_genre_frequency.main(argv)
+
+    assert result == 2
+    assert capsys.readouterr().err == (
+        f"Genre frequency comparison failed: Production frequency CSV "
+        f"{paths['newspaper']} is malformed at or near row 2.\n"
+    )

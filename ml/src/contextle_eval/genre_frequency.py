@@ -181,31 +181,44 @@ def load_production_genre_frequency(
         raise GenreFrequencyError(f"Could not read genre frequency CSV: {exc}") from exc
     records: list[GenreFrequencyRecord] = []
     seen: set[str] = set()
-    with handle:
-        reader = csv.DictReader(handle)
-        if reader.fieldnames != list(PRODUCTION_FREQUENCY_FIELDS):
-            raise GenreFrequencyError("Production frequency CSV header is invalid.")
-        for line_number, row in enumerate(reader, start=2):
-            word = _canonicalize(row["canonical_form"])
-            if not word or word != row["canonical_form"]:
-                raise GenreFrequencyError(
-                    f"Genre frequency row {line_number} has a noncanonical form."
+    reader: csv.DictReader[str] | None = None
+    row_context = 2
+    try:
+        with handle:
+            reader = csv.DictReader(handle, strict=True)
+            if reader.fieldnames != list(PRODUCTION_FREQUENCY_FIELDS):
+                raise GenreFrequencyError("Production frequency CSV header is invalid.")
+            for line_number, row in enumerate(reader, start=2):
+                row_context = line_number
+                word = _canonicalize(row["canonical_form"])
+                if not word or word != row["canonical_form"]:
+                    raise GenreFrequencyError(
+                        f"Genre frequency row {line_number} has a noncanonical form."
+                    )
+                if word in seen:
+                    raise GenreFrequencyError(
+                        f"Genre frequency CSV contains duplicate form {word!r}."
+                    )
+                seen.add(word)
+                count = _parse_nonnegative_int(row["count"], "count", line_number)
+                records.append(
+                    GenreFrequencyRecord(
+                        genre=genre,
+                        canonical_word=word,
+                        pos=PRODUCTION_AGGREGATED_POS,
+                        raw_count=count,
+                        genre_total_lexical_count=total,
+                    )
                 )
-            if word in seen:
-                raise GenreFrequencyError(
-                    f"Genre frequency CSV contains duplicate form {word!r}."
-                )
-            seen.add(word)
-            count = _parse_nonnegative_int(row["count"], "count", line_number)
-            records.append(
-                GenreFrequencyRecord(
-                    genre=genre,
-                    canonical_word=word,
-                    pos=PRODUCTION_AGGREGATED_POS,
-                    raw_count=count,
-                    genre_total_lexical_count=total,
-                )
-            )
+    except GenreFrequencyError:
+        raise
+    except (csv.Error, UnicodeError, TypeError, ValueError) as exc:
+        if reader is not None:
+            row_context = max(row_context, reader.line_num)
+        raise GenreFrequencyError(
+            f"Production frequency CSV {frequency_path} is malformed "
+            f"at or near row {row_context}."
+        ) from exc
     if not records:
         raise GenreFrequencyError("Production frequency CSV is empty.")
     if sum(record.raw_count for record in records) != total:
