@@ -52,37 +52,49 @@ const spectralTypes: SpectralType[] = [
  * 651~1000  K
  * 1001+     M
  */
+/*
+ * rank → 분광형
+ *
+ * 1             O (정답)
+ * 2~100         B
+ * 101~500       A
+ * 501~2,000     F
+ * 2,001~10,000  G
+ * 10,001~30,000 K
+ * 30,001+       M
+ */
 function getSpectralTypeByRank(
   rank: number | null,
 ): SpectralType {
-  if (
-    rank === null ||
-    rank > 1000
-  ) {
+  if (rank === null) {
     return "M";
   }
 
-  if (rank <= 10) {
+  if (rank === 1) {
     return "O";
   }
 
-  if (rank <= 50) {
+  if (rank <= 100) {
     return "B";
   }
 
-  if (rank <= 150) {
+  if (rank <= 500) {
     return "A";
   }
 
-  if (rank <= 350) {
+  if (rank <= 2000) {
     return "F";
   }
 
-  if (rank <= 650) {
+  if (rank <= 10000) {
     return "G";
   }
 
-  return "K";
+  if (rank <= 30000) {
+    return "K";
+  }
+
+  return "M";
 }
 
 /*
@@ -460,7 +472,7 @@ export default function Home() {
 
       case "INVALID_WORD":
         setErrorMessage(
-          error.message,
+          "현재 단어 목록에 없는 단어입니다. 다른 단어를 입력해 주세요.",
         );
         break;
 
@@ -964,7 +976,7 @@ export default function Home() {
                 }
               >
                 <h3>
-                  최근 추측
+                  추측 기록
                 </h3>
 
                 <span>
@@ -998,8 +1010,27 @@ export default function Home() {
                 }
               >
                 {[...guesses]
-                  .reverse()
-                  .slice(0, 8)
+                  .sort((first, second) => {
+                    if (
+                      first.rank !== null &&
+                      second.rank !== null
+                    ) {
+                    return first.rank - second.rank;
+                    }
+
+                    if (first.rank !== null) {
+                      return -1;
+                    }
+
+                    if (second.rank !== null) {
+                      return 1;
+                    }
+
+                    return (
+                      second.similarity -
+                      first.similarity
+                    );
+                  })
                   .map(
                     (
                       guess,
@@ -1119,7 +1150,7 @@ export default function Home() {
             }
           >
             <span>
-              1001위 밖
+              30,001위 밖
             </span>
 
             <div
@@ -1131,7 +1162,7 @@ export default function Home() {
             </div>
 
             <strong>
-              1~10위
+              1위
             </strong>
 
             <span
