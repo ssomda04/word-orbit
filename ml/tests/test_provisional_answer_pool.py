@@ -83,4 +83,4 @@ def test_rejects_duplicates_and_missing_reference_words(tmp_path: Path) -> None:
     output = tmp_path / "pool.txt"
     validate_reference_membership(entries, game_words=["사람"], answer_candidate_words=["사람"])
     write_provisional_pool(output, entries)
-    assert output.read_text(encoding="utf-8") == "사람\n"
+    assert output.read_bytes() == "사람\n".encode()

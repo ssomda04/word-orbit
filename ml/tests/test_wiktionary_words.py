@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import bz2
+import hashlib
 import importlib.util
 import unicodedata
 from pathlib import Path
@@ -65,12 +66,24 @@ def test_extracts_normalized_unique_korean_lemmas(tmp_path: Path) -> None:
 
     stats = extract_dump(dump_path, output_path)
 
-    assert output_path.read_text(encoding="utf-8").splitlines() == [
+    payload = output_path.read_bytes()
+    decoded = payload.decode("utf-8", errors="strict")
+    assert decoded.splitlines() == [
         "가다",
         "빨리",
         "예쁘다",
         "학생",
     ]
+    assert b"\r\n" not in payload
+    assert not payload.startswith(b"\xef\xbb\xbf")
+    assert payload.endswith(b"\n")
+    assert all(
+        word == unicodedata.normalize("NFKC", word).strip()
+        for word in decoded.splitlines()
+    )
+    assert hashlib.sha256(payload).hexdigest() == (
+        "87c88e7d74c081597edf8456d3819353f791235ff23d11fa5ed0ad2e098b031d"
+    )
     assert stats.pages_seen == 15
     assert stats.unique_words == 4
     assert stats.normalized_titles == 1
