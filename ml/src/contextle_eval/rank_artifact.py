@@ -62,9 +62,18 @@ class VocabularyIndex:
     @classmethod
     def from_file(cls, path: Path) -> VocabularyIndex:
         try:
-            return cls.create(path.read_text(encoding="utf-8-sig").splitlines())
-        except OSError as exc:
+            payload = path.read_bytes()
+            if payload.startswith(b"\xef\xbb\xbf"):
+                raise RankArtifactError("Vocabulary must not contain a UTF-8 BOM.")
+            decoded = payload.decode("utf-8")
+        except (OSError, UnicodeDecodeError) as exc:
             raise RankArtifactError(f"Could not read vocabulary {path}: {exc}") from exc
+        vocabulary = cls.create(decoded.splitlines())
+        if payload != _vocabulary_payload(vocabulary):
+            raise RankArtifactError(
+                "Vocabulary is not canonical NFKC+strip UTF-8 line data."
+            )
+        return vocabulary
 
     def index_of(self, word: str) -> int | None:
         normalized = normalize_word(word)
@@ -272,9 +281,13 @@ def validate_artifact(artifact: RankArtifact, vocabulary: VocabularyIndex) -> No
         raise RankArtifactError("Artifact arrays do not match vocabulary size.")
     if not np.isfinite(artifact.similarities).all():
         raise RankArtifactError("Artifact similarities contain NaN or infinity.")
+    if np.any((artifact.similarities < -1.0) | (artifact.similarities > 1.0)):
+        raise RankArtifactError("Artifact similarities must be within [-1.0, 1.0].")
     answer_index = int(metadata.get("answer_vocab_index", -1))
     if not 0 <= answer_index < size or artifact.ranks[answer_index] != 1:
         raise RankArtifactError("Artifact answer must have rank 1.")
+    if artifact.similarities[answer_index] != 1.0:
+        raise RankArtifactError("Artifact answer similarity must be 1.0.")
     expected = np.arange(1, size + 1, dtype=artifact.ranks.dtype)
     if not np.array_equal(np.sort(artifact.ranks), expected):
         raise RankArtifactError("Artifact ranks must be unique and continuous from 1..N.")
@@ -320,7 +333,12 @@ def save_artifact_npz(directory: Path, artifact: RankArtifact) -> Path:
     if target.exists():
         raise RankArtifactError(f"Artifact file already exists: {target}")
     metadata = json.dumps(dict(artifact.metadata), ensure_ascii=False, separators=(",", ":"))
-    np.savez_compressed(target, similarity=artifact.similarities, rank=artifact.ranks, metadata=metadata)
+    np.savez_compressed(
+        target,
+        similarity=artifact.similarities,
+        rank=artifact.ranks,
+        metadata=metadata,
+    )
     return target
 
 
@@ -472,6 +490,8 @@ def load_artifact_root_manifest(root: Path) -> tuple[dict[str, Any], VocabularyI
     vocabulary_path = root / "vocabulary.txt"
     try:
         payload = vocabulary_path.read_bytes()
+        if payload.startswith(b"\xef\xbb\xbf"):
+            raise RankArtifactError("vocabulary.txt must not contain a UTF-8 BOM.")
         decoded = payload.decode("utf-8")
     except (OSError, UnicodeDecodeError) as exc:
         raise RankArtifactError(f"Could not read canonical vocabulary: {exc}") from exc
@@ -491,8 +511,9 @@ def load_artifact_root_manifest(root: Path) -> tuple[dict[str, Any], VocabularyI
         raise RankArtifactError("Manifest contains a missing or invalid dtype.") from exc
     if similarity_dtype.kind != "f" or rank_dtype.kind != "u":
         raise RankArtifactError("Manifest dtypes must be floating similarity and unsigned rank.")
-    if not isinstance(manifest.get("answers"), dict):
-        raise RankArtifactError("Manifest answers must be an object.")
+    answers = manifest.get("answers")
+    if not isinstance(answers, dict) or not answers:
+        raise RankArtifactError("Manifest answers must be a non-empty object.")
     return manifest, vocabulary
 
 
@@ -511,7 +532,7 @@ def load_artifact_root_answer(
     normalized_answer = normalize_word(answer)
     answer_metadata = manifest["answers"].get(normalized_answer)
     if not isinstance(answer_metadata, dict):
-        raise RankArtifactError(f"Answer is missing from artifact manifest: {answer!r}")
+        raise RankArtifactError("Requested answer is missing from the artifact manifest.")
 
     artifact_id = artifact_id_for_answer(normalized_answer)
     expected_directory = artifact_relative_directory(normalized_answer)
@@ -527,8 +548,10 @@ def load_artifact_root_answer(
     try:
         similarities = np.load(root / expected_similarity, allow_pickle=False)
         ranks = np.load(root / expected_rank, allow_pickle=False)
-    except (OSError, ValueError) as exc:
-        raise RankArtifactError(f"Could not load answer artifact {artifact_id}: {exc}") from exc
+    except Exception as exc:
+        raise RankArtifactError(
+            f"Could not load answer artifact {artifact_id} ({type(exc).__name__})."
+        ) from None
     size = len(vocabulary.words)
     if similarities.shape != (size,) or ranks.shape != (size,):
         raise RankArtifactError("Artifact arrays do not match manifest vocabulary size.")
