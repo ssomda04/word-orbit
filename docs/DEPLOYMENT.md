@@ -6,9 +6,10 @@ what this repository provides, and which variables must never be set by hand.
 
 > **Status — Phase 1 of 2.** The image is hardened for Railway and production
 > currently serves **embedding mode on the deterministic mock**. Artifact mode is
-> fully implemented in the backend but **not yet deployed**: no artifact root has
-> been produced by the ML area, and this repository deliberately contains none.
-> See [Phase 2](#phase-2--artifact-mode-blocked-on-the-ml-artifact-root).
+> fully implemented in the backend but **not deployed in Phase 1**. A validated
+> 10-answer smoke artifact root is supplied separately and ships in Phase 2, for
+> end-to-end verification — it is not the final production answer pool.
+> See [Phase 2](#phase-2--artifact-mode).
 
 ---
 
@@ -63,9 +64,9 @@ Every guess is scored by the deterministic mock, and `rank` is always `null`
 because no `VOCABULARY_PATH` is configured. That is a valid API response
 ([API_SPEC.md](./API_SPEC.md)), not a fault.
 
-### 3.2 Artifact mode (Phase 2 — not yet applied)
+### 3.2 Artifact mode (Phase 2)
 
-Apply these **only** once a real artifact root has been received and committed.
+Apply these in Phase 2, once the smoke artifact root ships inside the image.
 Setting `SCORING_PROVIDER=artifact` without a valid `ARTIFACT_ROOT` fails startup
 by design — the server will not boot.
 
@@ -261,21 +262,25 @@ docker compose down
 
 ---
 
-## Phase 2 — artifact mode (blocked on the ML artifact root)
+## Phase 2 — artifact mode
 
-Production scoring will move to a precomputed **rank artifact root**
+Production scoring moves to a precomputed **rank artifact root**
 ([ARTIFACT_FORMAT.md](./ARTIFACT_FORMAT.md)), which the backend already
-implements end to end. What is missing is the data: the ML area produces artifact
-roots, and no root has been handed over yet.
+implements end to end.
 
-Artifact roots are data, not source. This repository contains none, and none is
-generated locally — a synthetic root would prove the plumbing works while telling
-us nothing about the numbers the game actually serves.
+A validated **10-answer smoke artifact root** is supplied separately by the ML
+area. It is a verification root, sized to prove the deployment path end to end —
+**not the final production answer pool**, which follows once the corpus work
+lands ([MODEL_EVALUATION.md](./MODEL_EVALUATION.md)).
 
-**When a small (10–50 answer) root arrives, Phase 2 is:**
+Artifact roots are data, not source, so the root is delivered rather than
+generated here: a synthetic root would prove the plumbing works while telling us
+nothing about the numbers the game actually serves.
 
-1. Place it at `backend/artifacts/smoke/` — inside the Docker build context, which
-   is the only place `COPY` can reach ([§2](#2-railway-service-configuration)).
+**Phase 2 is:**
+
+1. Place the supplied root at `backend/artifacts/smoke/` — inside the Docker build
+   context, which is the only place `COPY` can reach ([§2](#2-railway-service-configuration)).
 2. Add `!backend/artifacts/**/*.npy` to the root [`.gitignore`](../.gitignore).
    The global `*.npy` rule blocks the arrays; the negation works here because no
    parent directory of `backend/artifacts/` is itself excluded.
@@ -283,7 +288,7 @@ us nothing about the numbers the game actually serves.
    [`backend/Dockerfile`](../backend/Dockerfile), **before** `COPY … app ./app` so
    an application change does not invalidate the artifact layer. The user already
    exists at that point in the file, so the name-based `--chown` resolves.
-4. Set the artifact-mode variables from [§3.2](#32-artifact-mode-phase-2--not-yet-applied)
+4. Set the artifact-mode variables from [§3.2](#32-artifact-mode-phase-2)
    and redeploy.
 5. Extend the smoke test in [§7](#7-smoke-test):
    - Pick the probe words from the shipped `vocabulary.txt`, rather than assuming
@@ -296,6 +301,6 @@ us nothing about the numbers the game actually serves.
      exact. `rank` merely being an integer is weak evidence; a value-for-value
      match is what shows the API is serving the stored artifact.
 
-Steps 1–3 are deliberately absent from Phase 1: adding
-`COPY artifacts ./artifacts` before the directory exists breaks the build for
-everyone.
+Steps 1–3 are deliberately absent from Phase 1: the root ships with Phase 2, and
+adding `COPY artifacts ./artifacts` while the directory is absent breaks the
+build for everyone.
