@@ -10,7 +10,11 @@ import type {
   FormEvent,
 } from "react";
 
+import { useRouter } from "next/navigation";
+
 import styles from "./page.module.css";
+
+import HelpModal from "@/components/HelpModal";
 
 import EmbeddingSpace from "@/features/game/EmbeddingSpace";
 
@@ -41,17 +45,6 @@ const spectralTypes: SpectralType[] = [
   "O",
 ];
 
-/*
- * rank → 분광형
- *
- * 1~10      O
- * 11~50     B
- * 51~150    A
- * 151~350   F
- * 351~650   G
- * 651~1000  K
- * 1001+     M
- */
 /*
  * rank → 분광형
  *
@@ -140,6 +133,13 @@ function formatRank(
 }
 
 export default function Home() {
+  const router = useRouter();
+
+  const [
+    isHelpOpen,
+    setIsHelpOpen,
+  ] = useState(false);
+
   const [
     game,
     setGame,
@@ -534,645 +534,679 @@ export default function Home() {
   }
 
   return (
-    <main
-      className={styles.page}
-    >
-      <div
-        className={
-          styles.backgroundStars
-        }
-      />
-
-      <section
-        className={styles.app}
+    <>
+      <main
+        className={styles.page}
       >
-        <header
-          className={
-            styles.header
-          }
-        >
-          <div>
-            <div
-              className={
-                styles.logoRow
-              }
-            >
-              <span
-                className={
-                  styles.logoStar
-                }
-              >
-                ✦
-              </span>
-
-              <h1>
-                WORD ORBIT
-              </h1>
-            </div>
-
-            <p>
-              Find the hidden word
-              in semantic space
-            </p>
-          </div>
-
-          <nav
-            className={
-              styles.navigation
-            }
-            aria-label="주요 메뉴"
-          >
-            <button
-              type="button"
-            >
-              도움말
-            </button>
-
-            <button
-              type="button"
-            >
-              프로젝트
-            </button>
-
-            <button
-              type="button"
-              onClick={
-                handleStartGame
-              }
-              disabled={
-                isLoading
-              }
-            >
-              {isLoading
-                ? "준비 중..."
-                : game
-                  ? "새 게임"
-                  : "게임 시작"}
-            </button>
-          </nav>
-        </header>
-
         <div
           className={
-            styles.mainContent
+            styles.backgroundStars
           }
+        />
+
+        <section
+          className={styles.app}
         >
-          <section
+          <header
             className={
-              styles.spacePanel
+              styles.header
             }
           >
-            <div
+            <div>
+              <div
+                className={
+                  styles.logoRow
+                }
+              >
+                <span
+                  className={
+                    styles.logoStar
+                  }
+                >
+                  ✦
+                </span>
+
+                <h1>
+                  WORD ORBIT
+                </h1>
+              </div>
+
+              <p>
+                Find the hidden word
+                in semantic space
+              </p>
+            </div>
+
+            <nav
               className={
-                styles.spaceHeader
+                styles.navigation
+              }
+              aria-label="주요 메뉴"
+            >
+              <button
+                type="button"
+                onClick={() =>
+                  setIsHelpOpen(true)
+                }
+              >
+                도움말
+              </button>
+
+              <button
+                type="button"
+                onClick={() =>
+                  router.push(
+                    "/project",
+                  )
+                }
+              >
+                프로젝트
+              </button>
+
+              <button
+                type="button"
+                onClick={
+                  handleStartGame
+                }
+                disabled={
+                  isLoading
+                }
+              >
+                {isLoading
+                  ? "준비 중..."
+                  : game
+                    ? "새 게임"
+                    : "게임 시작"}
+              </button>
+            </nav>
+          </header>
+
+          <div
+            className={
+              styles.mainContent
+            }
+          >
+            <section
+              className={
+                styles.spacePanel
               }
             >
-              <div>
+              <div
+                className={
+                  styles.spaceHeader
+                }
+              >
+                <div>
+                  <span
+                    className={
+                      styles.eyebrow
+                    }
+                  >
+                    SEMANTIC
+                    UNIVERSE
+                  </span>
+
+                  <h2>
+                    단어 임베딩 우주
+                  </h2>
+                </div>
+
+                <div
+                  className={
+                    styles.spaceStatus
+                  }
+                >
+                  <span
+                    className={
+                      styles.statusDot
+                    }
+                  />
+
+                  {!game
+                    ? "게임 시작 전"
+                    : isFinished
+                      ? "탐색 완료"
+                      : "탐색 중"}
+                </div>
+              </div>
+
+              {/*
+               * 기존 2D 우주 영역 대신
+               * 3D EmbeddingSpace를 사용한다.
+               */}
+              <div
+                className={
+                  styles.universe3D
+                }
+              >
+                <EmbeddingSpace
+                  guesses={
+                    guesses
+                  }
+                  selectedGuess={
+                    selectedGuess
+                  }
+                  bestGuess={
+                    bestGuess
+                  }
+                  onSelectGuess={
+                    setSelectedGuess
+                  }
+                />
+
+                {/*
+                 * 선택 단어 정보는
+                 * 3D Canvas 위에 오버레이.
+                 */}
+                {selectedGuess && (
+                  <article
+                    className={
+                      styles.starInformation3D
+                    }
+                  >
+                    <div
+                      className={
+                        styles.informationHeader
+                      }
+                    >
+                      <span
+                        className={`${styles.informationStar} ${
+                          styles[
+                            `star${selectedGuess.spectralType}`
+                          ]
+                        }`}
+                      />
+
+                      <div>
+                        <span>
+                          선택된 단어
+                        </span>
+
+                        <strong>
+                          {
+                            selectedGuess.word
+                          }
+                        </strong>
+                      </div>
+                    </div>
+
+                    <dl>
+                      <div>
+                        <dt>
+                          유사도
+                        </dt>
+
+                        <dd>
+                          {selectedGuess.similarityPercent.toFixed(
+                            1,
+                          )}
+                          %
+                        </dd>
+                      </div>
+
+                      <div>
+                        <dt>
+                          순위
+                        </dt>
+
+                        <dd>
+                          {formatRank(
+                            selectedGuess.rank,
+                          )}
+                        </dd>
+                      </div>
+
+                      <div>
+                        <dt>
+                          분광형
+                        </dt>
+
+                        <dd>
+                          {
+                            selectedGuess.spectralType
+                          }
+                          형
+                        </dd>
+                      </div>
+                    </dl>
+                  </article>
+                )}
+
+                <div
+                  className={
+                    styles.spaceHint3D
+                  }
+                >
+                  <span>
+                    드래그하여 회전
+                  </span>
+
+                  <span>·</span>
+
+                  <span>
+                    휠로 확대/축소
+                  </span>
+
+                  <span>·</span>
+
+                  <span>
+                    별을 눌러 정보 확인
+                  </span>
+                </div>
+              </div>
+            </section>
+
+            <aside
+              className={
+                styles.sidePanel
+              }
+            >
+              <div
+                className={
+                  styles.sideHeading
+                }
+              >
                 <span
                   className={
                     styles.eyebrow
                   }
                 >
-                  SEMANTIC
-                  UNIVERSE
+                  TODAY&apos;S
+                  SEARCH
                 </span>
 
                 <h2>
-                  단어 임베딩 우주
+                  오늘의 추측
                 </h2>
+
+                <p>
+                  정답 순위가 높을수록
+                  별은 더 밝고 푸르게
+                  빛나며 정답 별 가까이에
+                  위치합니다.
+                </p>
               </div>
 
-              <div
+              <form
                 className={
-                  styles.spaceStatus
+                  styles.searchForm
+                }
+                onSubmit={
+                  handleSubmit
                 }
               >
-                <span
+                <label
+                  htmlFor="word-input"
+                >
+                  단어 입력
+                </label>
+
+                <div
                   className={
-                    styles.statusDot
-                  }
-                />
-
-                {!game
-                  ? "게임 시작 전"
-                  : isFinished
-                    ? "탐색 완료"
-                    : "탐색 중"}
-              </div>
-            </div>
-
-            {/*
-             * 기존 2D 우주 영역 대신
-             * 3D EmbeddingSpace를 사용한다.
-             */}
-            <div
-              className={
-                styles.universe3D
-              }
-            >
-              <EmbeddingSpace
-                guesses={
-                  guesses
-                }
-                selectedGuess={
-                  selectedGuess
-                }
-                bestGuess={
-                  bestGuess
-                }
-                onSelectGuess={
-                  setSelectedGuess
-                }
-              />
-
-              {/*
-               * 선택 단어 정보는
-               * 3D Canvas 위에 오버레이.
-               */}
-              {selectedGuess && (
-                <article
-                  className={
-                    styles.starInformation3D
+                    styles.inputRow
                   }
                 >
-                  <div
-                    className={
-                      styles.informationHeader
+                  <input
+                    id="word-input"
+                    type="text"
+                    value={input}
+                    onChange={(
+                      event,
+                    ) =>
+                      setInput(
+                        event
+                          .target
+                          .value,
+                      )
+                    }
+                    placeholder={
+                      !game
+                        ? "먼저 게임을 시작하세요"
+                        : isFinished
+                          ? "게임이 종료되었습니다"
+                          : "추측할 단어를 입력하세요"
+                    }
+                    autoComplete="off"
+                    disabled={
+                      !game ||
+                      isLoading ||
+                      isFinished
+                    }
+                  />
+
+                  <button
+                    type="submit"
+                    disabled={
+                      !game ||
+                      isLoading ||
+                      isFinished ||
+                      input.trim()
+                          .length ===
+                        0
                     }
                   >
+                    {isLoading
+                      ? "탐색 중"
+                      : "탐색"}
+
                     <span
-                      className={`${styles.informationStar} ${
-                        styles[
-                          `star${selectedGuess.spectralType}`
-                        ]
-                      }`}
-                    />
+                      aria-hidden="true"
+                    >
+                      ↗
+                    </span>
+                  </button>
+                </div>
+              </form>
 
-                    <div>
-                      <span>
-                        선택된 단어
-                      </span>
-
-                      <strong>
-                        {
-                          selectedGuess.word
-                        }
-                      </strong>
-                    </div>
-                  </div>
-
-                  <dl>
-                    <div>
-                      <dt>
-                        유사도
-                      </dt>
-
-                      <dd>
-                        {selectedGuess.similarityPercent.toFixed(
-                          1,
-                        )}
-                        %
-                      </dd>
-                    </div>
-
-                    <div>
-                      <dt>
-                        순위
-                      </dt>
-
-                      <dd>
-                        {formatRank(
-                          selectedGuess.rank,
-                        )}
-                      </dd>
-                    </div>
-
-                    <div>
-                      <dt>
-                        분광형
-                      </dt>
-
-                      <dd>
-                        {
-                          selectedGuess.spectralType
-                        }
-                        형
-                      </dd>
-                    </div>
-                  </dl>
-                </article>
-              )}
-
-              <div
-                className={
-                  styles.spaceHint3D
-                }
-              >
-                <span>
-                  드래그하여 회전
-                </span>
-
-                <span>·</span>
-
-                <span>
-                  휠로 확대/축소
-                </span>
-
-                <span>·</span>
-
-                <span>
-                  별을 눌러 정보 확인
-                </span>
-              </div>
-            </div>
-          </section>
-
-          <aside
-            className={
-              styles.sidePanel
-            }
-          >
-            <div
-              className={
-                styles.sideHeading
-              }
-            >
-              <span
-                className={
-                  styles.eyebrow
-                }
-              >
-                TODAY&apos;S
-                SEARCH
-              </span>
-
-              <h2>
-                오늘의 추측
-              </h2>
-
-              <p>
-                정답 순위가 높을수록
-                별은 더 밝고 푸르게
-                빛나며 정답 별 가까이에
-                위치합니다.
-              </p>
-            </div>
-
-            <form
-              className={
-                styles.searchForm
-              }
-              onSubmit={
-                handleSubmit
-              }
-            >
-              <label
-                htmlFor="word-input"
-              >
-                단어 입력
-              </label>
-
-              <div
-                className={
-                  styles.inputRow
-                }
-              >
-                <input
-                  id="word-input"
-                  type="text"
-                  value={input}
-                  onChange={(
-                    event,
-                  ) =>
-                    setInput(
-                      event
-                        .target
-                        .value,
-                    )
-                  }
-                  placeholder={
-                    !game
-                      ? "먼저 게임을 시작하세요"
-                      : isFinished
-                        ? "게임이 종료되었습니다"
-                        : "추측할 단어를 입력하세요"
-                  }
-                  autoComplete="off"
-                  disabled={
-                    !game ||
-                    isLoading ||
-                    isFinished
-                  }
-                />
-
-                <button
-                  type="submit"
-                  disabled={
-                    !game ||
-                    isLoading ||
-                    isFinished ||
-                    input.trim()
-                        .length ===
-                      0
-                  }
-                >
-                  {isLoading
-                    ? "탐색 중"
-                    : "탐색"}
-
-                  <span
-                    aria-hidden="true"
-                  >
-                    ↗
-                  </span>
-                </button>
-              </div>
-            </form>
-
-            {errorMessage && (
-              <p
-                role="alert"
-                className={
-                  styles.apiError
-                }
-              >
-                {
-                  errorMessage
-                }
-              </p>
-            )}
-
-            {isFinished &&
-              game?.answer && (
+              {errorMessage && (
                 <p
+                  role="alert"
                   className={
-                    styles.answerReveal
+                    styles.apiError
                   }
                 >
-                  정답은{" "}
-                  <strong>
-                    {
-                      game.answer
-                    }
-                  </strong>
-                  입니다.
+                  {
+                    errorMessage
+                  }
                 </p>
               )}
 
-            <section
+              {isFinished &&
+                game?.answer && (
+                  <p
+                    className={
+                      styles.answerReveal
+                    }
+                  >
+                    정답은{" "}
+                    <strong>
+                      {
+                        game.answer
+                      }
+                    </strong>
+                    입니다.
+                  </p>
+                )}
+
+              <section
+                className={
+                  styles.bestGuessCard
+                }
+              >
+                <span>
+                  가장 가까운 추측
+                </span>
+
+                <div
+                  className={
+                    styles.bestGuessContent
+                  }
+                >
+                  <div>
+                    <strong>
+                      {bestGuess?.word ??
+                        "-"}
+                    </strong>
+
+                    <p>
+                      {bestGuess
+                        ? formatRank(
+                            bestGuess.rank,
+                          )
+                        : "-"}
+                    </p>
+                  </div>
+
+                  <span
+                    className={
+                      styles.bestSimilarity
+                    }
+                  >
+                    {bestGuess?.similarityPercent.toFixed(
+                      1,
+                    ) ??
+                      "0.0"}
+
+                    <small>
+                      %
+                    </small>
+                  </span>
+                </div>
+              </section>
+
+              <section
+                className={
+                  styles.historySection
+                }
+              >
+                <div
+                  className={
+                    styles.historyHeader
+                  }
+                >
+                  <h3>
+                    추측 순위
+                  </h3>
+
+                  <span>
+                    {game?.guessCount ??
+                      guesses.length}
+                    개
+                  </span>
+                </div>
+
+                <div
+                  className={
+                    styles.historyColumnLabels
+                  }
+                >
+                  <span>
+                    단어
+                  </span>
+
+                  <span>
+                    유사도
+                  </span>
+
+                  <span>
+                    순위
+                  </span>
+                </div>
+
+                <div
+                  className={
+                    styles.historyList
+                  }
+                >
+                  {[...guesses]
+                    .sort(
+                      (
+                        first,
+                        second,
+                      ) => {
+                        if (
+                          first.rank !==
+                            null &&
+                          second.rank !==
+                            null
+                        ) {
+                          return (
+                            first.rank -
+                            second.rank
+                          );
+                        }
+
+                        if (
+                          first.rank !==
+                          null
+                        ) {
+                          return -1;
+                        }
+
+                        if (
+                          second.rank !==
+                          null
+                        ) {
+                          return 1;
+                        }
+
+                        return (
+                          second.similarity -
+                          first.similarity
+                        );
+                      },
+                    )
+                    .map(
+                      (
+                        guess,
+                      ) => (
+                        <button
+                          type="button"
+                          key={
+                            guess.guessId
+                          }
+                          className={[
+                            styles.historyItem,
+
+                            selectedGuess?.guessId ===
+                            guess.guessId
+                              ? styles.selectedHistoryItem
+                              : "",
+                          ].join(
+                            " ",
+                          )}
+                          onClick={() =>
+                            setSelectedGuess(
+                              guess,
+                            )
+                          }
+                        >
+                          <span
+                            className={
+                              styles.wordCell
+                            }
+                          >
+                            <span
+                              className={`${styles.historyStar} ${
+                                styles[
+                                  `star${guess.spectralType}`
+                                ]
+                              }`}
+                            />
+
+                            <strong>
+                              {
+                                guess.word
+                              }
+                            </strong>
+                          </span>
+
+                          <span>
+                            {guess.similarityPercent.toFixed(
+                              1,
+                            )}
+                          </span>
+
+                          <span>
+                            {guess.rank !==
+                            null
+                              ? `${guess.rank.toLocaleString()}위`
+                              : "-"}
+                          </span>
+                        </button>
+                      ),
+                    )}
+                </div>
+              </section>
+            </aside>
+          </div>
+
+          <footer
+            className={
+              styles.legend
+            }
+          >
+            <div
               className={
-                styles.bestGuessCard
+                styles.legendTitle
+              }
+            >
+              <strong>
+                별의 온도
+              </strong>
+
+              <span>
+                정답과의 순위
+              </span>
+            </div>
+
+            <div
+              className={
+                styles.spectralScale
+              }
+            >
+              {spectralTypes.map(
+                (type) => (
+                  <div
+                    className={
+                      styles.spectralItem
+                    }
+                    key={type}
+                  >
+                    <span>
+                      {type}
+                    </span>
+
+                    <i
+                      className={`${styles.legendStar} ${
+                        styles[
+                          `star${type}`
+                        ]
+                      }`}
+                    />
+                  </div>
+                ),
+              )}
+            </div>
+
+            <div
+              className={
+                styles.direction
               }
             >
               <span>
-                가장 가까운 추측
+                30,001위 밖
               </span>
 
               <div
                 className={
-                  styles.bestGuessContent
+                  styles.directionLine
                 }
               >
-                <div>
-                  <strong>
-                    {bestGuess?.word ??
-                      "-"}
-                  </strong>
-
-                  <p>
-                    {bestGuess
-                      ? formatRank(
-                          bestGuess.rank,
-                        )
-                      : "-"}
-                  </p>
-                </div>
-
-                <span
-                  className={
-                    styles.bestSimilarity
-                  }
-                >
-                  {bestGuess?.similarityPercent.toFixed(
-                    1,
-                  ) ??
-                    "0.0"}
-
-                  <small>
-                    %
-                  </small>
-                </span>
+                <span />
               </div>
-            </section>
 
-            <section
-              className={
-                styles.historySection
-              }
-            >
-              <div
-                className={
-                  styles.historyHeader
-                }
+              <strong>
+                1위
+              </strong>
+
+              <span
+                aria-hidden="true"
               >
-                <h3>
-                  추측 기록
-                </h3>
-
-                <span>
-                  {game?.guessCount ??
-                    guesses.length}
-                  개
-                </span>
-              </div>
-
-              <div
-                className={
-                  styles.historyColumnLabels
-                }
-              >
-                <span>
-                  단어
-                </span>
-
-                <span>
-                  유사도
-                </span>
-
-                <span>
-                  순위
-                </span>
-              </div>
-
-              <div
-                className={
-                  styles.historyList
-                }
-              >
-                {[...guesses]
-                  .sort((first, second) => {
-                    if (
-                      first.rank !== null &&
-                      second.rank !== null
-                    ) {
-                    return first.rank - second.rank;
-                    }
-
-                    if (first.rank !== null) {
-                      return -1;
-                    }
-
-                    if (second.rank !== null) {
-                      return 1;
-                    }
-
-                    return (
-                      second.similarity -
-                      first.similarity
-                    );
-                  })
-                  .map(
-                    (
-                      guess,
-                    ) => (
-                      <button
-                        type="button"
-                        key={
-                          guess.guessId
-                        }
-                        className={[
-                          styles.historyItem,
-
-                          selectedGuess?.guessId ===
-                          guess.guessId
-                            ? styles.selectedHistoryItem
-                            : "",
-                        ].join(
-                          " ",
-                        )}
-                        onClick={() =>
-                          setSelectedGuess(
-                            guess,
-                          )
-                        }
-                      >
-                        <span
-                          className={
-                            styles.wordCell
-                          }
-                        >
-                          <span
-                            className={`${styles.historyStar} ${
-                              styles[
-                                `star${guess.spectralType}`
-                              ]
-                            }`}
-                          />
-
-                          <strong>
-                            {
-                              guess.word
-                            }
-                          </strong>
-                        </span>
-
-                        <span>
-                          {guess.similarityPercent.toFixed(
-                            1,
-                          )}
-                        </span>
-
-                        <span>
-                          {guess.rank !==
-                          null
-                            ? `${guess.rank.toLocaleString()}위`
-                            : "-"}
-                        </span>
-                      </button>
-                    ),
-                  )}
-              </div>
-            </section>
-          </aside>
-        </div>
-
-        <footer
-          className={
-            styles.legend
-          }
-        >
-          <div
-            className={
-              styles.legendTitle
-            }
-          >
-            <strong>
-              별의 온도
-            </strong>
-
-            <span>
-              정답과의 순위
-            </span>
-          </div>
-
-          <div
-            className={
-              styles.spectralScale
-            }
-          >
-            {spectralTypes.map(
-              (type) => (
-                <div
-                  className={
-                    styles.spectralItem
-                  }
-                  key={type}
-                >
-                  <span>
-                    {type}
-                  </span>
-
-                  <i
-                    className={`${styles.legendStar} ${
-                      styles[
-                        `star${type}`
-                      ]
-                    }`}
-                  />
-                </div>
-              ),
-            )}
-          </div>
-
-          <div
-            className={
-              styles.direction
-            }
-          >
-            <span>
-              30,001위 밖
-            </span>
-
-            <div
-              className={
-                styles.directionLine
-              }
-            >
-              <span />
+                →
+              </span>
             </div>
+          </footer>
+        </section>
+      </main>
 
-            <strong>
-              1위
-            </strong>
-
-            <span
-              aria-hidden="true"
-            >
-              →
-            </span>
-          </div>
-        </footer>
-      </section>
-    </main>
+      {isHelpOpen && (
+        <HelpModal
+          onClose={() =>
+            setIsHelpOpen(false)
+          }
+        />
+      )}
+    </>
   );
 }
