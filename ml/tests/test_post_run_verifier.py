@@ -183,6 +183,29 @@ def test_frequency_mismatch_and_duplicate_are_blocking(
 
 
 @pytest.mark.parametrize(
+    ("frequency_text", "expected"),
+    [
+        ("canonical_form,count\n가\n", "missing or blank count"),
+        ('canonical_form,count\n"가,1\n', "could not read frequency CSV"),
+        ("canonical_form,count\n가,1,extra\n", "extra columns"),
+        ("canonical_form,count\n가,not-an-integer\n", "invalid count"),
+    ],
+)
+def test_malformed_frequency_rows_are_blocking_without_exception_leaks(
+    tmp_path: Path, frequency_text: str, expected: str
+) -> None:
+    _write_complete(tmp_path, "dialogue")
+    (tmp_path / "dialogue_frequency.csv").write_text(
+        frequency_text, encoding="utf-8"
+    )
+
+    result = verify_genre(tmp_path, "dialogue")
+
+    assert result.passed is False
+    assert any(expected in failure for failure in result.failures)
+
+
+@pytest.mark.parametrize(
     ("mutation", "expected"),
     [
         (lambda report: report.update(source="dialogue"), "report.source"),

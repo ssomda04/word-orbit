@@ -132,10 +132,10 @@ def _verify_frequency_csv(
 ) -> tuple[int, int] | None:
     total = 0
     row_count = 0
-    seen: set[str] = set()
+    previous_canonical: str | None = None
     try:
         with path.open(encoding="utf-8", newline="") as handle:
-            reader = csv.DictReader(handle)
+            reader = csv.DictReader(handle, strict=True)
             if reader.fieldnames != list(FREQUENCY_FIELDS):
                 result.fail(
                     f"frequency CSV header must be {list(FREQUENCY_FIELDS)}, "
@@ -143,18 +143,36 @@ def _verify_frequency_csv(
                 )
                 return None
             for line_number, row in enumerate(reader, start=2):
-                canonical = row["canonical_form"]
+                if None in row:
+                    result.fail(
+                        f"frequency CSV row {line_number} has extra columns"
+                    )
+                    continue
+                canonical = row.get("canonical_form")
                 if not canonical:
-                    result.fail(f"frequency CSV row {line_number} has a blank canonical form")
-                if canonical in seen:
+                    result.fail(
+                        f"frequency CSV row {line_number} has a missing or blank "
+                        "canonical form"
+                    )
+                    continue
+                if canonical == previous_canonical:
                     result.fail(
                         f"frequency CSV has duplicate canonical form at row {line_number}"
                     )
-                seen.add(canonical)
-                raw_count = row["count"]
+                elif previous_canonical is not None and canonical < previous_canonical:
+                    result.fail(
+                        f"frequency CSV row {line_number} is not in canonical-form order"
+                    )
+                previous_canonical = canonical
+                raw_count = row.get("count")
+                if raw_count is None or raw_count == "":
+                    result.fail(
+                        f"frequency CSV row {line_number} has a missing or blank count"
+                    )
+                    continue
                 try:
                     count = int(raw_count)
-                except ValueError:
+                except (TypeError, ValueError):
                     result.fail(
                         f"frequency CSV row {line_number} has invalid count {raw_count!r}"
                     )
