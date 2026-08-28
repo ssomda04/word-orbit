@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+import importlib.util
 from pathlib import Path
 
 import pytest
@@ -19,6 +20,19 @@ from contextle_eval.final_pool_selection import (
     select_final_pool,
     write_final_pool_outputs,
 )
+
+SCRIPT_PATH = Path(__file__).resolve().parents[1] / "scripts" / "build_final_answer_pool.py"
+SPEC = importlib.util.spec_from_file_location("build_final_answer_pool", SCRIPT_PATH)
+assert SPEC is not None and SPEC.loader is not None
+build_final_answer_pool = importlib.util.module_from_spec(SPEC)
+SPEC.loader.exec_module(build_final_answer_pool)
+
+
+def test_cli_defaults_evidence_gap_to_sibling_csv_file() -> None:
+    args = build_final_answer_pool.parse_args([])
+
+    assert args.evidence_gap_output == Path(r"C:\data\evidence_gap_review.csv")
+    assert args.evidence_gap_output != Path(r"C:\data\evidence_gap_review\.csv")
 
 
 def _metadata(*, proper: bool = False, review: bool = False) -> AnswerCandidateMetadata:
