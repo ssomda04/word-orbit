@@ -173,6 +173,7 @@ def test_production_adapter_reads_total_from_report_and_marks_pos_aggregated(
             {
                 "schema_version": "1.0",
                 "source": "newspaper",
+                "full_corpus_processed": True,
                 "frequency": {
                     "assignments": 100,
                     "unique_canonical_forms": 2,
@@ -205,6 +206,7 @@ def test_production_adapter_rejects_csv_report_count_mismatch(tmp_path: Path) ->
             {
                 "schema_version": "1.0",
                 "source": "dialogue",
+                "full_corpus_processed": True,
                 "frequency": {"assignments": 10},
             }
         ),
@@ -215,17 +217,108 @@ def test_production_adapter_rejects_csv_report_count_mismatch(tmp_path: Path) ->
         load_production_genre_frequency(frequency_path, report_path, "dialogue")
 
 
-def _write_production_report(path: Path, genre: str, assignments: int = 1) -> None:
+def _write_production_report(
+    path: Path,
+    genre: str,
+    assignments: int = 1,
+    *,
+    full_corpus_processed: object = True,
+    unique_canonical_forms: object | None = None,
+) -> None:
+    frequency: dict[str, object] = {"assignments": assignments}
+    if unique_canonical_forms is not None:
+        frequency["unique_canonical_forms"] = unique_canonical_forms
     path.write_text(
         json.dumps(
             {
                 "schema_version": "1.0",
                 "source": genre,
-                "frequency": {"assignments": assignments},
+                "full_corpus_processed": full_corpus_processed,
+                "frequency": frequency,
             }
         ),
         encoding="utf-8",
     )
+
+
+@pytest.mark.parametrize("full_corpus_processed", [False, 1, "true"])
+def test_production_adapter_rejects_non_true_full_corpus_processed(
+    tmp_path: Path, full_corpus_processed: object
+) -> None:
+    frequency_path = tmp_path / "frequency.csv"
+    frequency_path.write_text("canonical_form,count\n단어,1\n", encoding="utf-8")
+    report_path = tmp_path / "report.json"
+    _write_production_report(
+        report_path,
+        "dialogue",
+        full_corpus_processed=full_corpus_processed,
+    )
+
+    with pytest.raises(GenreFrequencyError, match="full_corpus_processed"):
+        load_production_genre_frequency(frequency_path, report_path, "dialogue")
+
+
+def test_production_adapter_rejects_missing_full_corpus_processed(
+    tmp_path: Path,
+) -> None:
+    frequency_path = tmp_path / "frequency.csv"
+    frequency_path.write_text("canonical_form,count\n단어,1\n", encoding="utf-8")
+    report_path = tmp_path / "report.json"
+    report_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "1.0",
+                "source": "dialogue",
+                "frequency": {"assignments": 1},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(GenreFrequencyError, match="full_corpus_processed"):
+        load_production_genre_frequency(frequency_path, report_path, "dialogue")
+
+
+def test_production_adapter_rejects_unique_canonical_form_count_mismatch(
+    tmp_path: Path,
+) -> None:
+    frequency_path = tmp_path / "frequency.csv"
+    frequency_path.write_text("canonical_form,count\n단어,1\n", encoding="utf-8")
+    report_path = tmp_path / "report.json"
+    _write_production_report(report_path, "dialogue", unique_canonical_forms=2)
+
+    with pytest.raises(GenreFrequencyError, match="unique_canonical_forms"):
+        load_production_genre_frequency(frequency_path, report_path, "dialogue")
+
+
+@pytest.mark.parametrize("unique_canonical_forms", [-1, True, 1.0, "1"])
+def test_production_adapter_rejects_invalid_unique_canonical_form_count(
+    tmp_path: Path, unique_canonical_forms: object
+) -> None:
+    frequency_path = tmp_path / "frequency.csv"
+    frequency_path.write_text("canonical_form,count\n단어,1\n", encoding="utf-8")
+    report_path = tmp_path / "report.json"
+    _write_production_report(
+        report_path,
+        "dialogue",
+        unique_canonical_forms=unique_canonical_forms,
+    )
+
+    with pytest.raises(GenreFrequencyError, match="unique_canonical_forms"):
+        load_production_genre_frequency(frequency_path, report_path, "dialogue")
+
+
+def test_production_adapter_accepts_matching_unique_canonical_form_count(
+    tmp_path: Path,
+) -> None:
+    frequency_path = tmp_path / "frequency.csv"
+    frequency_path.write_text("canonical_form,count\n단어,1\n", encoding="utf-8")
+    report_path = tmp_path / "report.json"
+    _write_production_report(report_path, "dialogue", unique_canonical_forms=1)
+
+    assert load_production_genre_frequency(
+        frequency_path, report_path, "dialogue"
+    ) == (GenreFrequencyRecord("dialogue", "단어", PRODUCTION_AGGREGATED_POS, 1, 1),)
 
 
 def test_production_adapter_normalizes_missing_row_value(tmp_path: Path) -> None:

@@ -166,6 +166,10 @@ def load_production_genre_frequency(
         raise GenreFrequencyError("Genre frequency report schema is unsupported.")
     if report.get("source") != genre:
         raise GenreFrequencyError("Genre frequency report source does not match.")
+    if report.get("full_corpus_processed") is not True:
+        raise GenreFrequencyError(
+            "Genre frequency report must have full_corpus_processed set to true."
+        )
     frequency = report.get("frequency")
     if not isinstance(frequency, dict):
         raise GenreFrequencyError("Genre frequency report has no frequency object.")
@@ -173,6 +177,15 @@ def load_production_genre_frequency(
     if not isinstance(total, int) or isinstance(total, bool) or total <= 0:
         raise GenreFrequencyError(
             "Genre frequency report has invalid frequency.assignments."
+        )
+    unique_canonical_forms = frequency.get("unique_canonical_forms")
+    if "unique_canonical_forms" in frequency and (
+        not isinstance(unique_canonical_forms, int)
+        or isinstance(unique_canonical_forms, bool)
+        or unique_canonical_forms < 0
+    ):
+        raise GenreFrequencyError(
+            "Genre frequency report has invalid frequency.unique_canonical_forms."
         )
 
     try:
@@ -221,6 +234,11 @@ def load_production_genre_frequency(
         ) from exc
     if not records:
         raise GenreFrequencyError("Production frequency CSV is empty.")
+    if unique_canonical_forms is not None and len(records) != unique_canonical_forms:
+        raise GenreFrequencyError(
+            "Production CSV row count does not equal report "
+            "frequency.unique_canonical_forms."
+        )
     if sum(record.raw_count for record in records) != total:
         raise GenreFrequencyError(
             "Production CSV counts do not equal report frequency.assignments."
