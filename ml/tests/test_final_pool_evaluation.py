@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import csv
 from pathlib import Path
+from typing import cast
 
 import pytest
 from contextle_eval.final_pool_evaluation import (
@@ -12,6 +13,7 @@ from contextle_eval.final_pool_evaluation import (
     FinalPoolEvaluationError,
     FrequencyEvidence,
     GenreComparisonEvidence,
+    GenreMatchType,
     evaluate_candidates,
     load_final_pool_candidates,
     load_genre_comparison_evidence,
@@ -63,9 +65,30 @@ def _genre(coverage: int) -> GenreComparisonEvidence:
 
 def test_synthetic_fixture_preserves_evidence_and_routes_established_risks() -> None:
     candidates = (
-        FinalPoolCandidate("균형명사", "명사", _metadata(), _frequency(), _genre(3)),
-        FinalPoolCandidate("단일장르", "명사", _metadata(), _frequency(), _genre(1)),
-        FinalPoolCandidate("장르미관측", "명사", _metadata(), _frequency(), _genre(0)),
+        FinalPoolCandidate(
+            "균형명사",
+            "명사",
+            _metadata(),
+            _frequency(),
+            _genre(3),
+            genre_match_type="aggregated",
+        ),
+        FinalPoolCandidate(
+            "단일장르",
+            "명사",
+            _metadata(),
+            _frequency(),
+            _genre(1),
+            genre_match_type="aggregated",
+        ),
+        FinalPoolCandidate(
+            "장르미관측",
+            "명사",
+            _metadata(),
+            _frequency(),
+            _genre(0),
+            genre_match_type="aggregated",
+        ),
         FinalPoolCandidate("서울", "고유 명사", _metadata(proper=True), _frequency()),
         FinalPoolCandidate("혼합어", "명사|동사", _metadata(), _frequency(status="mixed_pos")),
         FinalPoolCandidate("교차어", "동사|형용사", _metadata(), _frequency(status="cross_pos")),
@@ -77,8 +100,16 @@ def test_synthetic_fixture_preserves_evidence_and_routes_established_risks() -> 
             _frequency(),
             _genre(0),
             in_provisional_pool_baseline=True,
+            genre_match_type="aggregated",
         ),
-        FinalPoolCandidate("충분어", "명사", _metadata(), _frequency(), _genre(2)),
+        FinalPoolCandidate(
+            "충분어",
+            "명사",
+            _metadata(),
+            _frequency(),
+            _genre(2),
+            genre_match_type="aggregated",
+        ),
     )
 
     rows = {row.candidate.canonical_word: row for row in evaluate_candidates(candidates)}
@@ -98,6 +129,56 @@ def test_synthetic_fixture_preserves_evidence_and_routes_established_risks() -> 
     assert rows["기존약한어"].reasons == ("insufficient_frequency_evidence",)
     assert "provisional_pool_baseline" in rows["기존약한어"].available_evidence
     assert rows["충분어"].status == "eligible"
+
+
+@pytest.mark.parametrize(
+    ("genre", "match_type"),
+    [
+        (None, "none"),
+        (GenreComparisonEvidence("명사", 1, ("newspaper",)), "exact"),
+        (_genre(1), "aggregated"),
+    ],
+)
+def test_final_pool_candidate_accepts_consistent_genre_provenance(
+    genre: GenreComparisonEvidence | None, match_type: GenreMatchType
+) -> None:
+    candidate = FinalPoolCandidate(
+        "단어",
+        "명사",
+        _metadata(),
+        _frequency(),
+        genre,
+        genre_match_type=match_type,
+    )
+
+    evaluation = evaluate_candidates([candidate])[0]
+
+    assert evaluation.as_audit_row()["genre_match_type"] == match_type
+
+
+@pytest.mark.parametrize(
+    ("genre", "match_type"),
+    [
+        (GenreComparisonEvidence("명사", 1, ("newspaper",)), "none"),
+        (None, "exact"),
+        (None, "aggregated"),
+        (GenreComparisonEvidence("동사", 1, ("newspaper",)), "exact"),
+        (GenreComparisonEvidence("명사", 1, ("newspaper",)), "aggregated"),
+        (None, "unknown"),
+    ],
+)
+def test_final_pool_candidate_rejects_inconsistent_genre_provenance(
+    genre: GenreComparisonEvidence | None, match_type: str
+) -> None:
+    with pytest.raises(FinalPoolEvaluationError):
+        FinalPoolCandidate(
+            "단어",
+            "명사",
+            _metadata(),
+            _frequency(),
+            genre,
+            genre_match_type=cast(GenreMatchType, match_type),
+        )
 
 
 def test_risk_reason_vocabulary_is_explicit_and_deterministic() -> None:

@@ -114,6 +114,31 @@ class FinalPoolCandidate:
     in_provisional_pool_baseline: bool = False
     genre_match_type: GenreMatchType = "none"
 
+    def __post_init__(self) -> None:
+        """Reject inconsistent genre provenance at the candidate boundary."""
+        if self.genre_match_type not in {"none", "exact", "aggregated"}:
+            raise FinalPoolEvaluationError(
+                f"Unknown genre match type: {self.genre_match_type}."
+            )
+        if self.genre is None:
+            if self.genre_match_type != "none":
+                raise FinalPoolEvaluationError(
+                    f"Genre match type {self.genre_match_type} requires genre evidence."
+                )
+            return
+        if self.genre_match_type == "none":
+            raise FinalPoolEvaluationError(
+                "Genre evidence requires an exact or aggregated match type."
+            )
+        if self.genre_match_type == "exact" and self.genre.pos != self.pos:
+            raise FinalPoolEvaluationError(
+                "Exact genre evidence POS must match the candidate POS."
+            )
+        if self.genre_match_type == "aggregated" and self.genre.pos != "AGGREGATED":
+            raise FinalPoolEvaluationError(
+                "Aggregated genre evidence POS must be AGGREGATED."
+            )
+
 
 @dataclass(frozen=True, slots=True)
 class CandidateEvaluation:
