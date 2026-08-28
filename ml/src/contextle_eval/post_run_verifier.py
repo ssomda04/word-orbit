@@ -26,7 +26,6 @@ CANDIDATE_REQUIRED_FIELDS = frozenset(
 CONSERVATION_FLAGS = (
     "status_conserved",
     "roles_conserved",
-    "base_equals_candidate_count",
 )
 FIXED_REPORT_MAPPINGS = (
     "normalization_status",
@@ -253,6 +252,11 @@ def _verify_conservation(report: Mapping[str, Any], result: GenreVerification) -
     for flag in CONSERVATION_FLAGS:
         if conservation.get(flag) is not True:
             result.fail(f"report.count_conservation.{flag} must be true")
+    legacy_base_flag = conservation.get("base_equals_candidate_count")
+    if not isinstance(legacy_base_flag, bool):
+        result.fail(
+            "report.count_conservation.base_equals_candidate_count must be a boolean"
+        )
     numeric = ("status_total", "role_total", "token_count", "candidate_rows")
     for key in numeric:
         if not _is_nonnegative_int(conservation.get(key)):
@@ -267,6 +271,7 @@ def _verify_conservation(report: Mapping[str, Any], result: GenreVerification) -
         if expected != conservation["status_total"]:
             result.fail("normalization_status sum does not equal status_total")
     roles = _nonnegative_mapping(report, "lexical_roles", result)
+    placeholder_audit = _nonnegative_mapping(report, "placeholder_audit", result)
     if roles is not None and _is_nonnegative_int(conservation.get("role_total")):
         expected = sum(
             roles.get(key, 0)
@@ -279,8 +284,39 @@ def _verify_conservation(report: Mapping[str, Any], result: GenreVerification) -
         )
         if expected != conservation["role_total"]:
             result.fail("lexical_roles sum does not equal role_total")
-        if roles.get("derivational_base") != roles.get("derivational_candidate"):
-            result.fail("derivational base/candidate lexical role counts differ")
+        base_count = roles.get("derivational_base")
+        candidate_count = roles.get("derivational_candidate")
+        candidate_rows = conservation.get("candidate_rows")
+        excluded_candidates = (
+            None
+            if placeholder_audit is None
+            else placeholder_audit.get("candidates_excluded")
+        )
+        if (
+            _is_nonnegative_int(base_count)
+            and _is_nonnegative_int(candidate_rows)
+            and base_count != candidate_rows
+        ):
+            result.fail("derivational base count does not equal retained candidate rows")
+        if (
+            _is_nonnegative_int(candidate_count)
+            and _is_nonnegative_int(candidate_rows)
+            and _is_nonnegative_int(excluded_candidates)
+            and candidate_count != candidate_rows + excluded_candidates
+        ):
+            result.fail(
+                "derivational candidate count does not equal retained plus excluded candidates"
+            )
+        if (
+            legacy_base_flag is False
+            and _is_nonnegative_int(base_count)
+            and _is_nonnegative_int(candidate_rows)
+            and base_count == candidate_rows
+        ):
+            result.warn(
+                "legacy base_equals_candidate_count flag used the pre-placeholder "
+                "candidate count; numeric conservation is valid"
+            )
 
 
 def _verify_sanity(report: Mapping[str, Any], result: GenreVerification) -> None:
