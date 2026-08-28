@@ -7,7 +7,13 @@ from datetime import UTC, datetime
 import pytest
 
 from app.core.errors import GameAlreadyFinishedError, InvalidWordError
-from app.domain.game import MAX_WORD_LENGTH, Game, GameStatus, normalize_word
+from app.domain.game import (
+    MAX_WORD_LENGTH,
+    FinishReason,
+    Game,
+    GameStatus,
+    normalize_word,
+)
 from app.domain.words import ANSWER_WORDS, RandomAnswerSelector
 
 ANSWER = "사과"
@@ -123,6 +129,70 @@ def test_guess_is_immutable(game: Game) -> None:
 
     with pytest.raises(dataclasses.FrozenInstanceError):
         guess.similarity = 0.99  # type: ignore[misc]
+
+
+# --- Giving up -------------------------------------------------------------
+
+
+def test_give_up_finishes_the_game(game: Game) -> None:
+    game.give_up()
+
+    assert game.status is GameStatus.ABANDONED
+    assert game.is_finished is True
+    assert game.finish_reason is FinishReason.GAVE_UP
+
+
+def test_give_up_records_no_guess(game: Game) -> None:
+    """Giving up is not an attempt, so the history is untouched."""
+    _record(game, "학생")
+
+    game.give_up()
+
+    assert game.guess_count == 1
+    assert [guess.word for guess in game.guesses] == ["학생"]
+
+
+def test_give_up_keeps_the_answer_on_the_game(game: Game) -> None:
+    """The reveal is the schema layer's decision; the domain only ends the round."""
+    game.give_up()
+
+    assert game.answer == ANSWER
+
+
+def test_guess_after_give_up_is_rejected(game: Game) -> None:
+    game.give_up()
+
+    with pytest.raises(GameAlreadyFinishedError):
+        _record(game, "학생")
+
+
+def test_giving_up_twice_is_rejected(game: Game) -> None:
+    game.give_up()
+
+    with pytest.raises(GameAlreadyFinishedError):
+        game.give_up()
+
+
+def test_give_up_after_winning_is_rejected(game: Game) -> None:
+    _record(game, ANSWER, similarity=1.0)
+
+    with pytest.raises(GameAlreadyFinishedError):
+        game.give_up()
+
+    assert game.status is GameStatus.WON  # the rejected call changed nothing
+
+
+# --- finish_reason ---------------------------------------------------------
+
+
+def test_a_playing_game_has_no_finish_reason(game: Game) -> None:
+    assert game.finish_reason is None
+
+
+def test_a_won_game_finished_because_it_was_correct(game: Game) -> None:
+    _record(game, ANSWER, similarity=1.0)
+
+    assert game.finish_reason is FinishReason.CORRECT
 
 
 # --- Answer selection ------------------------------------------------------

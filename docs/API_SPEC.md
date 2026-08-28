@@ -20,7 +20,9 @@ in the same PR, and flagging the change to the team (see
 - **Base URL** comes from `NEXT_PUBLIC_API_URL` (default `http://localhost:8000`).
 - **The answer word is never sent to the client while a game is in progress** —
   not in any response, not in any log. It is revealed only after the game leaves
-  `playing`, through `answer` on `GET /api/games/{gameId}` (see that endpoint).
+  `playing`, through exactly two responses: `answer` on
+  `GET /api/games/{gameId}`, and the success response of
+  `POST /api/games/{gameId}/give-up` (see both endpoints).
 
 ## Error format
 
@@ -124,8 +126,9 @@ No request body.
 server-side and never returned by this endpoint — the response has no `answer`
 field at all.
 
-> `abandoned` is reserved: no endpoint currently abandons a game, and there is no
-> attempt limit, so today a game only ever moves `playing` → `won`.
+> A game reaches `abandoned` when the player gives up
+> (`POST /api/games/{gameId}/give-up`). There is still no attempt limit, so
+> `playing` → `won` and `playing` → `abandoned` are the only transitions.
 
 ### ✅ `POST /api/games/{gameId}/guesses` — submit a guess
 
@@ -191,6 +194,45 @@ grow, and the game stays `playing`. The order of checks is fixed —
 `GAME_ALREADY_FINISHED` beats `INVALID_WORD`, so a finished game rejects an
 unscorable word as a conflict rather than a bad request.
 
+### ✅ `POST /api/games/{gameId}/give-up` — give up and reveal the answer
+
+No request body.
+
+**200** (not 204 and not 201 — the response *is* the reveal)
+
+```json
+{
+  "gameId": "01174974-fb2b-4ba9-9ad7-3f16e42bbdc1",
+  "status": "abandoned",
+  "finishReason": "gave_up",
+  "answer": "바다"
+}
+```
+
+| Field          | Type   | Nullable | Notes                                                  |
+| -------------- | ------ | -------- | ------------------------------------------------------ |
+| `gameId`       | string | no       | Echoes the path parameter.                             |
+| `status`       | string | no       | Always `"abandoned"` here — the existing finished state.|
+| `finishReason` | string | no       | `"correct" \| "gave_up"`; always `"gave_up"` here.      |
+| `answer`       | string | no       | The game's answer word. Non-nullable: this response exists only for a game that has just ended. |
+
+**`finishReason` is derived from `status`, not stored beside it**: `won` →
+`"correct"`, `abandoned` → `"gave_up"`. The two can therefore never disagree.
+It appears only on this response; `GET /api/games/{gameId}` is unchanged and
+does not carry it.
+
+**Giving up is not an attempt.** Nothing is appended to `guesses` and
+`guessCount` does not grow — the round simply ends.
+
+**The game is finished server-side**, not merely in the client: afterwards
+`GET /api/games/{gameId}` reports `status: "abandoned"` with `answer` populated,
+and every guess is rejected with `409 GAME_ALREADY_FINISHED` — including the
+answer word itself.
+
+Errors: `404 GAME_NOT_FOUND`, `409 GAME_ALREADY_FINISHED` (the game has already
+finished, whether it was won or given up — so a second give-up conflicts). A
+rejected give-up changes nothing: a won game stays `won`.
+
 ### ✅ `GET /api/games/{gameId}` — fetch game state
 
 **200**
@@ -214,8 +256,9 @@ Sorting by similarity for display is the client's job.
 
 **`answer` reveal condition.** `answer` is `null` for **every** request while
 `status === "playing"`, and is populated **only** once the game has reached `won`
-or `abandoned` (reveal phase). There is no other endpoint or field through which
-the answer word can reach a client.
+or `abandoned` (reveal phase). The only other place the answer word reaches a
+client is the success response of `POST /api/games/{gameId}/give-up`, which is
+what moves a game to `abandoned` in the first place.
 
 `guessCount` equals `guesses.length` (duplicates are not counted twice).
 

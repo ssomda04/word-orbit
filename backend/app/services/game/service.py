@@ -104,6 +104,27 @@ class GameService:
         self._repository.save(game)
         return guess
 
+    def give_up(self, game_id: str) -> Game:
+        """End a game at the player's request and return it, answer included.
+
+        The caller gets the whole ``Game`` because the reveal belongs to this
+        use case: the answer is readable on it, and the router's response
+        mapper is the one place that decides to send it
+        (``app.schemas.game.to_give_up_response``). Nothing is logged here — the
+        answer stays out of the log on this path as on every other.
+
+        Raises:
+            GameNotFoundError: no game with that id exists.
+            GameAlreadyFinishedError: the game has already ended, by a correct
+                guess or by an earlier give-up.
+        """
+        game = self.get_game(game_id)
+        # The transition — and its finished guard — belong to the domain, the
+        # same way the win transition does. This layer only persists the result.
+        game.give_up()
+        self._repository.save(game)
+        return game
+
     @staticmethod
     def _now() -> datetime:
         return datetime.now(UTC)

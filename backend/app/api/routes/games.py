@@ -10,9 +10,11 @@ from app.api.deps import GameServiceDep
 from app.schemas.game import (
     CreateGameResponse,
     GameStateResponse,
+    GiveUpResponse,
     GuessRequest,
     GuessResponse,
     to_game_state_response,
+    to_give_up_response,
     to_guess_response,
 )
 
@@ -43,6 +45,17 @@ def submit_guess(
     """
     guess = service.submit_guess(game_id, payload.word)
     return to_guess_response(guess)
+
+
+@router.post("/{game_id}/give-up", response_model=GiveUpResponse)
+def give_up(game_id: str, service: GameServiceDep) -> GiveUpResponse:
+    """End a game at the player's request and reveal the answer.
+
+    The game finishes as `abandoned`, so afterwards it rejects every guess with
+    `409 GAME_ALREADY_FINISHED` — as does a second give-up, and as does a
+    give-up on a game already won.
+    """
+    return to_give_up_response(service.give_up(game_id))
 
 
 @router.get("/{game_id}", response_model=GameStateResponse)

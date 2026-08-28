@@ -8,10 +8,13 @@ and a finished game stops accepting guesses.
 import logging
 import re
 import uuid
+from datetime import UTC, datetime
 
 import pytest
 from fastapi.testclient import TestClient
 
+from app.domain.game import Game
+from app.schemas.game import to_give_up_response
 from tests.conftest import OTHER_WRONG_WORD, TEST_ANSWER, WRONG_WORD
 
 # `2026-07-24T11:22:57Z` — the documented timestamp shape.
@@ -26,6 +29,10 @@ def _create_game(client: TestClient) -> str:
 
 def _guess(client: TestClient, game_id: str, word: str):
     return client.post(f"/api/games/{game_id}/guesses", json={"word": word})
+
+
+def _give_up(client: TestClient, game_id: str):
+    return client.post(f"/api/games/{game_id}/give-up")
 
 
 def _assert_answer_absent(text: str) -> None:
@@ -335,3 +342,169 @@ def test_answer_is_revealed_after_the_game_is_won(client: TestClient) -> None:
     assert body["status"] == "won"
     assert body["answer"] == TEST_ANSWER
     assert body["guessCount"] == 2
+
+
+# --- POST /api/games/{gameId}/give-up ------------------------------------
+
+
+def test_give_up_returns_documented_shape(client: TestClient) -> None:
+    game_id = _create_game(client)
+
+    response = _give_up(client, game_id)
+    body = response.json()
+
+    assert response.status_code == 200
+    assert set(body) == {"gameId", "status", "finishReason", "answer"}
+    assert body["gameId"] == game_id
+    assert body["status"] == "abandoned"
+    assert body["finishReason"] == "gave_up"
+
+
+def test_give_up_reveals_the_real_answer(client: TestClient) -> None:
+    """Not just *an* answer: the word this game was actually set on."""
+    game_id = _create_game(client)
+
+    body = _give_up(client, game_id).json()
+
+    assert body["answer"] == TEST_ANSWER
+
+
+def test_give_up_after_guessing_keeps_the_history(client: TestClient) -> None:
+    """Giving up ends the round; it does not count as an attempt."""
+    game_id = _create_game(client)
+    _guess(client, game_id, WRONG_WORD)
+
+    _give_up(client, game_id)
+    state = client.get(f"/api/games/{game_id}").json()
+
+    assert state["guessCount"] == 1
+    assert state["status"] == "abandoned"
+    assert state["answer"] == TEST_ANSWER
+
+
+def test_guess_after_give_up_is_rejected_with_conflict(client: TestClient) -> None:
+    """The block is server-side state, not a disabled input in the client."""
+    game_id = _create_game(client)
+    _give_up(client, game_id)
+
+    response = _guess(client, game_id, WRONG_WORD)
+    body = response.json()
+
+    assert response.status_code == 409
+    assert body["code"] == "GAME_ALREADY_FINISHED"
+    assert set(body) == {"code", "message", "details"}
+
+
+def test_guessing_the_answer_after_give_up_is_also_rejected(client: TestClient) -> None:
+    """Even the winning word: an abandoned game accepts nothing at all."""
+    game_id = _create_game(client)
+    _give_up(client, game_id)
+
+    response = _guess(client, game_id, TEST_ANSWER)
+
+    assert response.status_code == 409
+    assert response.json()["code"] == "GAME_ALREADY_FINISHED"
+
+
+def test_give_up_on_unknown_game_returns_game_not_found(client: TestClient) -> None:
+    response = _give_up(client, "00000000-0000-4000-8000-000000000000")
+    body = response.json()
+
+    assert response.status_code == 404
+    assert body["code"] == "GAME_NOT_FOUND"
+    assert set(body) == {"code", "message", "details"}
+    _assert_answer_absent(response.text)
+
+
+def test_give_up_on_a_won_game_is_rejected_with_conflict(client: TestClient) -> None:
+    game_id = _create_game(client)
+    _guess(client, game_id, TEST_ANSWER)
+
+    response = _give_up(client, game_id)
+    body = response.json()
+
+    assert response.status_code == 409
+    assert body["code"] == "GAME_ALREADY_FINISHED"
+    assert set(body) == {"code", "message", "details"}
+
+
+def test_give_up_on_a_won_game_does_not_change_its_status(client: TestClient) -> None:
+    """A rejected give-up must not rewrite how the game actually ended."""
+    game_id = _create_game(client)
+    _guess(client, game_id, TEST_ANSWER)
+
+    _give_up(client, game_id)
+
+    assert client.get(f"/api/games/{game_id}").json()["status"] == "won"
+
+
+def test_second_give_up_is_rejected_with_conflict(client: TestClient) -> None:
+    game_id = _create_game(client)
+
+    first = _give_up(client, game_id)
+    second = _give_up(client, game_id)
+
+    assert first.status_code == 200
+    assert second.status_code == 409
+    assert second.json()["code"] == "GAME_ALREADY_FINISHED"
+    assert set(second.json()) == {"code", "message", "details"}
+
+
+def test_give_up_does_not_log_the_answer(
+    client: TestClient, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The reveal is a response, not a log line (AGENTS.md)."""
+    game_id = _create_game(client)
+
+    with caplog.at_level(logging.DEBUG):
+        _give_up(client, game_id)
+
+    _assert_answer_absent(caplog.text)
+
+
+# --- Answer secrecy regression: give-up is the only new reveal -------------
+
+
+def test_the_new_endpoint_does_not_reveal_answers_early(client: TestClient) -> None:
+    """The create/get contract is unchanged by this feature.
+
+    Walks a *second*, untouched game through the in-progress flow while another
+    game has been given up, so a reveal leaking through shared state — a cached
+    response model, a mutated default — would fail here.
+    """
+    given_up_id = _create_game(client)
+    _give_up(client, given_up_id)
+
+    create = client.post("/api/games")
+    playing_id = create.json()["gameId"]
+
+    assert "answer" not in create.json()
+    _assert_answer_absent(create.text)
+
+    guess = _guess(client, playing_id, WRONG_WORD)
+    assert "answer" not in guess.json()
+    _assert_answer_absent(guess.text)
+
+    state = client.get(f"/api/games/{playing_id}")
+    assert state.json()["status"] == "playing"
+    assert state.json()["answer"] is None
+    _assert_answer_absent(state.text)
+
+
+def test_the_give_up_mapper_refuses_to_reveal_a_playing_game() -> None:
+    """The reveal is guarded by the game's status, not by the caller's promise.
+
+    `to_give_up_response` is the only new place the answer word can be read into
+    a response, so it must fail closed if it is ever reached with a game that has
+    not finished — and fail without naming the word.
+    """
+    playing = Game(
+        id="game-1",
+        answer=TEST_ANSWER,
+        created_at=datetime(2026, 7, 24, 11, 22, 57, tzinfo=UTC),
+    )
+
+    with pytest.raises(ValueError) as caught:
+        to_give_up_response(playing)
+
+    _assert_answer_absent(str(caught.value))
