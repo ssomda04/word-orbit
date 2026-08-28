@@ -9,7 +9,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
-from contextle_eval.final_pool_evaluation import CandidateEvaluation
+from contextle_eval.final_pool_evaluation import CandidateEvaluation, FinalPoolCandidate
 
 MIN_GENRE_COVERAGE = 2
 MIN_MEAN_PERCENTILE = 0.20
@@ -114,6 +114,17 @@ def _format_float(value: float | None) -> str:
     return "" if value is None else repr(value)
 
 
+def has_usable_genre_evidence(candidate: FinalPoolCandidate) -> bool:
+    """Genre evidence is usable only when a row exists and observed at least one genre.
+
+    A missing row and a row that observed zero genres are the same audit state: no
+    observed genre evidence. Both must route to the evidence-gap lane rather than
+    being read as a merely weak but present signal.
+    """
+    genre = candidate.genre
+    return genre is not None and genre.genre_coverage > 0
+
+
 def apply_approved_policy(evaluation: CandidateEvaluation) -> FinalPoolSelection:
     """Combine the existing audit status with the approved balanced genre gate."""
     candidate = evaluation.candidate
@@ -121,7 +132,7 @@ def apply_approved_policy(evaluation: CandidateEvaluation) -> FinalPoolSelection
     reasons: list[str] = []
     if evaluation.status != "eligible":
         reasons.append(f"existing_evaluator_{evaluation.status}")
-    if genre is None:
+    if not has_usable_genre_evidence(candidate):
         reasons.append("no_genre_evidence")
         genre_policy_pass = False
     else:
@@ -181,7 +192,7 @@ def evidence_gap_reviews(
     return tuple(
         selection
         for selection in selections
-        if selection.evaluation.candidate.genre is None
+        if not has_usable_genre_evidence(selection.evaluation.candidate)
         and selection.evaluation.candidate.in_provisional_pool_baseline
         and not selection.final_selected
     )

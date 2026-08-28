@@ -17,6 +17,7 @@ from contextle_eval.final_pool_evaluation import (
 from contextle_eval.final_pool_selection import (
     FinalPoolSelectionError,
     evidence_gap_reviews,
+    has_usable_genre_evidence,
     select_final_pool,
     write_final_pool_outputs,
 )
@@ -151,6 +152,66 @@ def test_no_evidence_is_rejected_and_provisional_is_kept_in_review_lane() -> Non
     assert selection.final_selected is False
     assert selection.final_selection_reasons == ("no_genre_evidence",)
     assert evidence_gap_reviews([selection]) == (selection,)
+
+
+def test_zero_coverage_genre_row_is_evidence_gap_not_weak_evidence() -> None:
+    """A joined genre row observing zero genres is the same gap as a missing row."""
+    selection = select_final_pool(
+        evaluate_candidates([_candidate("빈장르", coverage=0, provisional=True)])
+    )[0]
+
+    assert has_usable_genre_evidence(selection.evaluation.candidate) is False
+    assert selection.evaluation.candidate.genre is not None
+    assert selection.evaluation.candidate.genre.genre_coverage == 0
+    assert selection.genre_policy_pass is False
+    assert selection.final_selected is False
+    assert "no_genre_evidence" in selection.final_selection_reasons
+    assert evidence_gap_reviews([selection]) == (selection,)
+
+
+def test_zero_coverage_keeps_existing_evaluator_semantics_unchanged() -> None:
+    """The evaluator already routes coverage=0 away from eligible; the fix adds no path in."""
+    evaluation = evaluate_candidates([_candidate("빈장르", coverage=0, provisional=True)])[0]
+
+    assert evaluation.status == "review_required"
+    assert "insufficient_frequency_evidence" in evaluation.reasons
+
+
+def test_zero_coverage_without_provisional_membership_stays_out_of_review_queue() -> None:
+    """The gap lane stays scoped to provisional members; it is not a coverage=0 dump."""
+    selection = select_final_pool(
+        evaluate_candidates([_candidate("비잠정", coverage=0, provisional=False)])
+    )[0]
+
+    assert has_usable_genre_evidence(selection.evaluation.candidate) is False
+    assert selection.final_selected is False
+    assert evidence_gap_reviews([selection]) == ()
+
+
+@pytest.mark.parametrize("coverage", [1, 2, 3])
+def test_observed_genre_evidence_is_never_an_evidence_gap(coverage: int) -> None:
+    """Provisional membership alone must not pull an observed-evidence row into the lane."""
+    selection = select_final_pool(
+        evaluate_candidates([_candidate("관측됨", coverage=coverage, provisional=True)])
+    )[0]
+
+    assert has_usable_genre_evidence(selection.evaluation.candidate) is True
+    assert evidence_gap_reviews([selection]) == ()
+
+
+def test_provisional_membership_never_becomes_a_selection_condition() -> None:
+    """Evidence-gap membership is an audit lane, never an automatic selection."""
+    gap_selections = select_final_pool(
+        evaluate_candidates(
+            [
+                _candidate("무증거", coverage=None, provisional=True),
+                _candidate("빈장르", coverage=0, provisional=True),
+            ]
+        )
+    )
+
+    assert evidence_gap_reviews(gap_selections) == gap_selections
+    assert all(not selection.final_selected for selection in gap_selections)
 
 
 def test_outputs_are_deterministic_complete_and_preserve_evidence_gap(
