@@ -1,7 +1,6 @@
 # ---------------------------------------------------------------------------
 # Root .gitattributes for the Contextle monorepo.
 # ---------------------------------------------------------------------------
-
 # --- Rank artifact roots (docs/ARTIFACT_FORMAT.md) ---
 # These files are hash-verified data, not source. `vocabulary.txt` is the exact
 # byte sequence whose sha256 `manifest.json` records, and the backend refuses a
@@ -30,3 +29,4 @@
 #     its sha256 and by `load_manifest`, so a 59,582-line textual diff of
 #     `vocabulary.txt` is noise in every review it ever appears in.
 backend/artifacts/** binary
+backend/artifacts/final/**/*.npy filter=lfs diff=lfs merge=lfs -text
