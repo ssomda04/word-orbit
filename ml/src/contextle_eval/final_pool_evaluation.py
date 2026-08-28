@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Literal
 
 CandidateStatus = Literal["eligible", "review_required", "excluded"]
+GenreMatchType = Literal["exact", "aggregated", "none"]
 GenreName = Literal["newspaper", "dialogue", "online"]
 GENRES: tuple[GenreName, ...] = ("newspaper", "dialogue", "online")
 
@@ -48,6 +49,8 @@ AUDIT_FIELDS = (
     "available_evidence",
     "genre_coverage",
     "observed_genres",
+    "genre_evidence_pos",
+    "genre_match_type",
     "manual_review_required",
     "in_provisional_pool_baseline",
 )
@@ -109,6 +112,7 @@ class FinalPoolCandidate:
     frequency: FrequencyEvidence
     genre: GenreComparisonEvidence | None = None
     in_provisional_pool_baseline: bool = False
+    genre_match_type: GenreMatchType = "none"
 
 
 @dataclass(frozen=True, slots=True)
@@ -136,6 +140,8 @@ class CandidateEvaluation:
             "observed_genres": (
                 "" if genre is None else "|".join(genre.observed_genres)
             ),
+            "genre_evidence_pos": "" if genre is None else genre.pos,
+            "genre_match_type": self.candidate.genre_match_type,
             "manual_review_required": _format_bool(self.manual_review_required),
             "in_provisional_pool_baseline": _format_bool(
                 self.candidate.in_provisional_pool_baseline
@@ -206,6 +212,21 @@ def _parse_optional_float(value: str, *, field: str, row_number: int) -> float |
             f"Candidate row {row_number} has non-finite {field}."
         )
     return parsed
+
+
+def _require_range(
+    value: float | None,
+    *,
+    field: str,
+    row_number: int,
+    minimum: float,
+    maximum: float,
+) -> float | None:
+    if value is not None and not minimum <= value <= maximum:
+        raise FinalPoolEvaluationError(
+            f"Row {row_number} has {field} outside {minimum}..{maximum}."
+        )
+    return value
 
 
 def evaluate_candidate(candidate: FinalPoolCandidate) -> CandidateEvaluation:
@@ -297,6 +318,11 @@ def load_genre_comparison_evidence(
             raise FinalPoolEvaluationError(
                 f"Genre comparison CSV requires fields {sorted(required)}."
             )
+        genre_percentile_fields = tuple(
+            f"{genre}_percentile"
+            for genre in GENRES
+            if f"{genre}_percentile" in reader.fieldnames
+        )
         for row_number, row in enumerate(reader, start=2):
             word = _normalize_word(row[adapter.word_field])
             pos = row[adapter.pos_field].strip()
@@ -319,18 +345,50 @@ def load_genre_comparison_evidence(
                 raise FinalPoolEvaluationError(
                     f"Genre comparison row {row_number} has inconsistent coverage."
                 )
+            for field in genre_percentile_fields:
+                _require_range(
+                    _parse_optional_float(row[field], field=field, row_number=row_number),
+                    field=field,
+                    row_number=row_number,
+                    minimum=0.0,
+                    maximum=1.0,
+                )
             evidence[key] = GenreComparisonEvidence(
                 pos=pos,
                 genre_coverage=coverage,
                 observed_genres=observed,
-                mean_percentile=_parse_optional_float(
-                    row[summary_fields[0]], field=summary_fields[0], row_number=row_number
+                mean_percentile=_require_range(
+                    _parse_optional_float(
+                        row[summary_fields[0]],
+                        field=summary_fields[0],
+                        row_number=row_number,
+                    ),
+                    field=summary_fields[0],
+                    row_number=row_number,
+                    minimum=0.0,
+                    maximum=1.0,
                 ),
-                median_percentile=_parse_optional_float(
-                    row[summary_fields[1]], field=summary_fields[1], row_number=row_number
+                median_percentile=_require_range(
+                    _parse_optional_float(
+                        row[summary_fields[1]],
+                        field=summary_fields[1],
+                        row_number=row_number,
+                    ),
+                    field=summary_fields[1],
+                    row_number=row_number,
+                    minimum=0.0,
+                    maximum=1.0,
                 ),
-                max_percentile=_parse_optional_float(
-                    row[summary_fields[2]], field=summary_fields[2], row_number=row_number
+                max_percentile=_require_range(
+                    _parse_optional_float(
+                        row[summary_fields[2]],
+                        field=summary_fields[2],
+                        row_number=row_number,
+                    ),
+                    field=summary_fields[2],
+                    row_number=row_number,
+                    minimum=0.0,
+                    maximum=1.0,
                 ),
             )
     return evidence
@@ -374,10 +432,16 @@ def load_final_pool_candidates(
                 field="selected_frequency",
                 row_number=row_number,
             )
-            percentile = _parse_optional_float(
-                row["frequency_percentile"],
+            percentile = _require_range(
+                _parse_optional_float(
+                    row["frequency_percentile"],
+                    field="frequency_percentile",
+                    row_number=row_number,
+                ),
                 field="frequency_percentile",
                 row_number=row_number,
+                minimum=0.0,
+                maximum=100.0,
             )
             if found != (selected is not None) or found != (percentile is not None):
                 raise FinalPoolEvaluationError(
@@ -428,8 +492,10 @@ def load_final_pool_candidates(
                 risk_flags=_split_pipe(row["hybrid_risk_flags"]),
             )
             joined_genre = genre_evidence.get((word, pos))
+            genre_match_type: GenreMatchType = "exact"
             if joined_genre is None:
                 joined_genre = genre_evidence.get((word, aggregated_genre_pos))
+                genre_match_type = "aggregated" if joined_genre is not None else "none"
             candidates.append(
                 FinalPoolCandidate(
                     canonical_word=word,
@@ -438,6 +504,7 @@ def load_final_pool_candidates(
                     frequency=frequency,
                     genre=joined_genre,
                     in_provisional_pool_baseline=word in provisional,
+                    genre_match_type=genre_match_type,
                 )
             )
     return tuple(candidates)

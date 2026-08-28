@@ -5,9 +5,11 @@ from __future__ import annotations
 import csv
 from pathlib import Path
 
+import pytest
 from contextle_eval.final_pool_evaluation import (
     AnswerCandidateMetadata,
     FinalPoolCandidate,
+    FinalPoolEvaluationError,
     FrequencyEvidence,
     GenreComparisonEvidence,
     evaluate_candidates,
@@ -159,7 +161,12 @@ def test_genre_csv_adapter_and_audit_output_are_schema_decoupled(tmp_path: Path)
     evaluations = evaluate_candidates(
         [
             FinalPoolCandidate(
-                "단어", "명사", _metadata(), _frequency(), genre[("단어", "AGGREGATED")]
+                "단어",
+                "명사",
+                _metadata(),
+                _frequency(),
+                genre[("단어", "AGGREGATED")],
+                genre_match_type="aggregated",
             )
         ]
     )
@@ -174,6 +181,8 @@ def test_genre_csv_adapter_and_audit_output_are_schema_decoupled(tmp_path: Path)
         "answer_candidate_metadata|frequency_evidence|genre_comparison_evidence"
     )
     assert row["genre_coverage"] == "2"
+    assert row["genre_evidence_pos"] == "AGGREGATED"
+    assert row["genre_match_type"] == "aggregated"
     assert row["manual_review_required"] == "false"
 
 
@@ -244,6 +253,10 @@ def test_production_aggregated_genre_row_joins_candidate_pos_and_preserves_prove
     assert candidate.genre is not None
     assert candidate.genre.pos == "AGGREGATED"
     assert candidate.genre.genre_coverage == 3
+    assert candidate.genre_match_type == "aggregated"
+    audit_row = evaluate_candidates([candidate])[0].as_audit_row()
+    assert audit_row["genre_evidence_pos"] == "AGGREGATED"
+    assert audit_row["genre_match_type"] == "aggregated"
 
 
 def test_pos_specific_genre_row_takes_precedence_over_aggregated_fallback(
@@ -269,6 +282,13 @@ def test_pos_specific_genre_row_takes_precedence_over_aggregated_fallback(
     assert candidate.genre is not None
     assert candidate.genre.pos == "동사"
     assert candidate.genre.genre_coverage == 2
+    assert candidate.genre_match_type == "exact"
+    output = tmp_path / "audit.csv"
+    write_candidate_audit(output, evaluate_candidates([candidate]))
+    with output.open(encoding="utf-8", newline="") as handle:
+        audit_row = next(csv.DictReader(handle))
+    assert audit_row["genre_evidence_pos"] == "동사"
+    assert audit_row["genre_match_type"] == "exact"
 
 
 def test_enriched_candidate_loader_preserves_metadata_and_baseline(tmp_path: Path) -> None:
@@ -299,10 +319,69 @@ def test_enriched_candidate_loader_preserves_metadata_and_baseline(tmp_path: Pat
     assert candidate.frequency.selected_frequency == 42
     assert candidate.frequency.percentile == 75.5
     assert candidate.genre is None
+    assert candidate.genre_match_type == "none"
     assert candidate.in_provisional_pool_baseline is True
     evaluation = evaluate_candidates([candidate])[0]
     assert evaluation.reasons == ("manual_review",)
-    assert evaluation.as_audit_row()["source_review_reasons"] == "technical_term"
+    output = tmp_path / "audit.csv"
+    write_candidate_audit(output, [evaluation])
+    with output.open(encoding="utf-8", newline="") as handle:
+        audit_row = next(csv.DictReader(handle))
+    assert audit_row["source_review_reasons"] == "technical_term"
+    assert audit_row["genre_evidence_pos"] == ""
+    assert audit_row["genre_match_type"] == "none"
+
+
+@pytest.mark.parametrize("percentile", ["-0.1", "100.1"])
+def test_candidate_loader_rejects_frequency_percentile_outside_0_to_100(
+    tmp_path: Path, percentile: str
+) -> None:
+    path = tmp_path / "candidates.csv"
+    row = _enriched_row("단어", "명사")
+    row["frequency_percentile"] = percentile
+    with path.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=tuple(row), lineterminator="\n")
+        writer.writeheader()
+        writer.writerow(row)
+
+    with pytest.raises(FinalPoolEvaluationError, match="outside 0.0..100.0"):
+        load_final_pool_candidates(path)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("newspaper_percentile", "-0.1"),
+        ("newspaper_percentile", "1.1"),
+        ("mean_percentile", "1.1"),
+        ("median_percentile", "-0.1"),
+        ("max_percentile", "1.1"),
+    ],
+)
+def test_genre_loader_rejects_percentiles_outside_0_to_1(
+    tmp_path: Path, field: str, value: str
+) -> None:
+    path = tmp_path / "genre.csv"
+    row = {
+        "canonical_word": "단어",
+        "pos": "명사",
+        "newspaper_raw": "10",
+        "newspaper_percentile": "0.7",
+        "dialogue_raw": "",
+        "online_raw": "",
+        "genre_coverage": "1",
+        "mean_percentile": "0.7",
+        "median_percentile": "0.7",
+        "max_percentile": "0.7",
+    }
+    row[field] = value
+    with path.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=tuple(row), lineterminator="\n")
+        writer.writeheader()
+        writer.writerow(row)
+
+    with pytest.raises(FinalPoolEvaluationError, match="outside 0.0..1.0"):
+        load_genre_comparison_evidence(path)
 
 
 def _enriched_row(word: str, pos: str) -> dict[str, str]:
