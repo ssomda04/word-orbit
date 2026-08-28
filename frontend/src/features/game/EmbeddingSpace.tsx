@@ -303,94 +303,88 @@ function getRadiusByRank(
   rank: number | null,
 ): number {
   /*
-   * rank 구현 전에는 가장 바깥쪽.
+   * rank가 없는 경우 가장 바깥쪽.
    */
   if (rank === null) {
     return 7.2;
   }
 
   /*
-   * O형: 1~10위
+   * 1~100위: 매우 가까움
+   * rank 1은 정답이며 가장 중심에 위치.
    */
-  if (rank <= 10) {
+  if (rank <= 100) {
     return interpolate(
       rank,
       1,
-      10,
+      100,
       1.1,
       1.8,
     );
   }
 
   /*
-   * B형: 11~50위
+   * 101~500위: 가까움
    */
-  if (rank <= 50) {
+  if (rank <= 500) {
     return interpolate(
       rank,
-      11,
-      50,
+      101,
+      500,
       2.0,
       2.7,
     );
   }
 
   /*
-   * A형: 51~150위
+   * 501~2,000위: 꽤 가까움
    */
-  if (rank <= 150) {
+  if (rank <= 2000) {
     return interpolate(
       rank,
-      51,
-      150,
+      501,
+      2000,
       2.9,
       3.7,
     );
   }
 
   /*
-   * F형: 151~350위
+   * 2,001~10,000위: 중간
    */
-  if (rank <= 350) {
+  if (rank <= 10000) {
     return interpolate(
       rank,
-      151,
-      350,
+      2001,
+      10000,
       3.9,
       4.7,
     );
   }
 
   /*
-   * G형: 351~650위
+   * 10,001~30,000위: 멂
    */
-  if (rank <= 650) {
+  if (rank <= 30000) {
     return interpolate(
       rank,
-      351,
-      650,
+      10001,
+      30000,
       4.9,
       5.6,
     );
   }
 
   /*
-   * K형: 651~1000위
+   * 30,001위 이상: 매우 멂
    */
-  if (rank <= 1000) {
-    return interpolate(
-      rank,
-      651,
-      1000,
-      5.8,
-      6.5,
-    );
-  }
-
-  /*
-   * M형: 1001위 밖
-   */
-  return 7.1;
+  return interpolate(
+    Math.min(rank, 59582),
+    30001,
+    59582,
+    5.8,
+    7.1,
+  );
 }
 
 /*
