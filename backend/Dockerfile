@@ -47,7 +47,10 @@ RUN uv sync --no-dev
 # No FastText model, and no FastText dependency, arrives with it — the arrays
 # were computed offline and numpy reads them. See the header comment.
 COPY --chown=appuser:appuser artifacts ./artifacts
-
+RUN echo "=== artifact dirs ===" \
+    && find /app/artifacts -maxdepth 2 -type d | head -30 \
+    && test -d /app/artifacts/final
+    
 # --- Application layer ---
 COPY --chown=appuser:appuser app ./app
 
