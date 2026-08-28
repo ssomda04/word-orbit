@@ -173,22 +173,56 @@ def _verify_frequency_csv(
     return total, row_count
 
 
-def _verify_candidate_gzip(path: Path, result: GenreVerification) -> list[str] | None:
-    """Read only the compressed CSV header, never its production-sized body."""
+def _verify_candidate_gzip(
+    path: Path, result: GenreVerification
+) -> tuple[list[str], int] | None:
+    """Stream the complete compressed CSV and return its header and data-row count."""
     try:
         with gzip.open(path, "rt", encoding="utf-8", newline="") as handle:
-            reader = csv.reader(handle)
+            reader = csv.reader(handle, strict=True)
             header = next(reader, None)
+            if header is None:
+                result.fail("candidate gzip is empty")
+                return None
+            missing = sorted(CANDIDATE_REQUIRED_FIELDS - set(header))
+            if missing:
+                result.fail(f"candidate gzip header is missing fields: {missing}")
+            row_count = sum(1 for _ in reader)
     except (OSError, EOFError, UnicodeError, csv.Error) as exc:
-        result.fail(f"could not read candidate gzip header: {exc}")
+        result.fail(f"could not read candidate gzip: {exc}")
         return None
-    if header is None:
-        result.fail("candidate gzip is empty")
-        return None
-    missing = sorted(CANDIDATE_REQUIRED_FIELDS - set(header))
-    if missing:
-        result.fail(f"candidate gzip header is missing fields: {missing}")
-    return header
+    return header, row_count
+
+
+def _verify_output_provenance(
+    report: Mapping[str, Any], paths: Mapping[str, Path], result: GenreVerification
+) -> None:
+    outputs = _mapping(report, "outputs", result)
+    if outputs is None:
+        return
+    declared_outputs = {
+        "frequency_csv": paths["frequency_csv"],
+        "derivational_candidates_csv_gz": paths["candidate_gzip"],
+    }
+    for key, actual_path in declared_outputs.items():
+        declared = outputs.get(key)
+        if not isinstance(declared, str) or not declared:
+            result.fail(f"report.outputs.{key} must be a non-empty path string")
+            continue
+        declared_path = Path(declared)
+        actual = actual_path.resolve()
+        if declared_path.is_absolute():
+            matches = declared_path.resolve() == actual
+        else:
+            # The producer serializes its Path verbatim. A bare filename is
+            # relative to the report directory; a longer path is relative to
+            # the producer's working directory.
+            matches = (
+                (actual_path.parent / declared_path).resolve() == actual
+                or declared_path.resolve() == actual
+            )
+        if not matches:
+            result.fail(f"report.outputs.{key} does not identify {actual_path.name}")
 
 
 def _verify_conservation(report: Mapping[str, Any], result: GenreVerification) -> None:
@@ -333,7 +367,7 @@ def verify_genre(output_dir: Path, genre: Genre) -> GenreVerification:
         result.fail("report.full_corpus_processed must be true")
 
     csv_stats = _verify_frequency_csv(paths["frequency_csv"], result)
-    candidate_header = _verify_candidate_gzip(paths["candidate_gzip"], result)
+    candidate_stats = _verify_candidate_gzip(paths["candidate_gzip"], result)
     frequency = report.get("frequency")
     if csv_stats is not None and isinstance(frequency, dict):
         csv_total, csv_unique = csv_stats
@@ -350,9 +384,22 @@ def verify_genre(output_dir: Path, genre: Genre) -> GenreVerification:
         }
     elif not isinstance(frequency, dict):
         result.fail("report.frequency must be an object")
-    if candidate_header is not None:
+    if candidate_stats is not None:
+        candidate_header, candidate_rows = candidate_stats
         result.summary["candidate_header_fields"] = candidate_header
+        result.summary["candidate_rows"] = candidate_rows
+        conservation = report.get("count_conservation")
+        if (
+            isinstance(conservation, dict)
+            and "candidate_rows" in conservation
+            and conservation["candidate_rows"] != candidate_rows
+        ):
+            result.fail(
+                "candidate gzip row count does not equal "
+                "report.count_conservation.candidate_rows"
+            )
 
+    _verify_output_provenance(report, paths, result)
     _verify_conservation(report, result)
     _verify_sanity(report, result)
     parser = report.get("parser")

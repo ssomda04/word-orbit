@@ -99,7 +99,16 @@ def _write_complete(root: Path, genre: str) -> None:
     frequency.write_text("canonical_form,count\n가,1\n나,2\n", encoding="utf-8")
     candidate = root / f"{genre}_derivational_candidates.csv.gz"
     with gzip.open(candidate, "wt", encoding="utf-8", newline="") as handle:
-        csv.DictWriter(handle, fieldnames=CANDIDATE_FIELDS).writeheader()
+        writer = csv.DictWriter(handle, fieldnames=CANDIDATE_FIELDS)
+        writer.writeheader()
+        writer.writerow(
+            {
+                "source": genre,
+                "source_text_id": "1",
+                "canonical_form": "하다",
+                "frequency_assignment": "0",
+            }
+        )
     (root / f"{genre}_report.json").write_text(
         json.dumps(_report(genre), ensure_ascii=False), encoding="utf-8"
     )
@@ -218,6 +227,156 @@ def test_false_count_conservation_flag_is_blocking(tmp_path: Path) -> None:
 
     assert result.passed is False
     assert any("roles_conserved" in failure for failure in result.failures)
+
+
+def test_candidate_header_and_expected_row_pass(tmp_path: Path) -> None:
+    _write_complete(tmp_path, "dialogue")
+
+    result = verify_genre(tmp_path, "dialogue")
+
+    assert result.passed is True
+    assert result.summary["candidate_rows"] == 1
+
+
+def test_candidate_header_only_with_expected_row_is_blocking(tmp_path: Path) -> None:
+    _write_complete(tmp_path, "dialogue")
+    candidate = tmp_path / "dialogue_derivational_candidates.csv.gz"
+    with gzip.open(candidate, "wt", encoding="utf-8", newline="") as handle:
+        csv.DictWriter(handle, fieldnames=CANDIDATE_FIELDS).writeheader()
+
+    result = verify_genre(tmp_path, "dialogue")
+
+    assert result.passed is False
+    assert any("candidate gzip row count" in failure for failure in result.failures)
+
+
+def test_candidate_row_count_mismatch_is_blocking(tmp_path: Path) -> None:
+    _write_complete(tmp_path, "dialogue")
+    _mutate_report(
+        tmp_path,
+        "dialogue",
+        lambda report: report["count_conservation"].update(candidate_rows=2),
+    )
+
+    result = verify_genre(tmp_path, "dialogue")
+
+    assert result.passed is False
+    assert any("candidate gzip row count" in failure for failure in result.failures)
+
+
+def test_truncated_candidate_gzip_is_blocking(tmp_path: Path) -> None:
+    _write_complete(tmp_path, "dialogue")
+    candidate = tmp_path / "dialogue_derivational_candidates.csv.gz"
+    candidate.write_bytes(candidate.read_bytes()[:-4])
+
+    result = verify_genre(tmp_path, "dialogue")
+
+    assert result.passed is False
+    assert any("could not read candidate gzip" in failure for failure in result.failures)
+
+
+@pytest.mark.parametrize(
+    ("key", "wrong_path"),
+    [
+        ("frequency_csv", "wrong_frequency.csv"),
+        ("derivational_candidates_csv_gz", "wrong_candidates.csv.gz"),
+    ],
+)
+def test_wrong_output_provenance_is_blocking(
+    tmp_path: Path, key: str, wrong_path: str
+) -> None:
+    _write_complete(tmp_path, "dialogue")
+    _mutate_report(
+        tmp_path,
+        "dialogue",
+        lambda report: report["outputs"].update({key: wrong_path}),
+    )
+
+    result = verify_genre(tmp_path, "dialogue")
+
+    assert result.passed is False
+    assert any(f"report.outputs.{key}" in failure for failure in result.failures)
+
+
+def test_absolute_output_provenance_passes(tmp_path: Path) -> None:
+    _write_complete(tmp_path, "dialogue")
+    _mutate_report(
+        tmp_path,
+        "dialogue",
+        lambda report: report["outputs"].update(
+            frequency_csv=str((tmp_path / "dialogue_frequency.csv").resolve()),
+            derivational_candidates_csv_gz=str(
+                (tmp_path / "dialogue_derivational_candidates.csv.gz").resolve()
+            ),
+        ),
+    )
+
+    assert verify_genre(tmp_path, "dialogue").passed is True
+
+
+def test_json_output_cannot_overwrite_production_report(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _write_complete(tmp_path, "dialogue")
+    report = tmp_path / "dialogue_report.json"
+    original = report.read_bytes()
+
+    exit_code = CLI.main(
+        [
+            "--output-dir",
+            str(tmp_path),
+            "--genre",
+            "dialogue",
+            "--json-output",
+            str(report),
+        ]
+    )
+
+    assert exit_code == 2
+    assert report.read_bytes() == original
+    assert "strictly read-only" in capsys.readouterr().err
+
+
+def test_json_output_inside_output_dir_is_rejected(tmp_path: Path) -> None:
+    output_dir = tmp_path / "production"
+    _write_complete(output_dir, "dialogue")
+    json_output = output_dir / "new-summary.json"
+
+    exit_code = CLI.main(
+        [
+            "--output-dir",
+            str(output_dir),
+            "--genre",
+            "dialogue",
+            "--json-output",
+            str(json_output),
+        ]
+    )
+
+    assert exit_code == 2
+    assert not json_output.exists()
+
+
+def test_relative_json_output_collision_is_rejected(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    output_dir = tmp_path / "production"
+    _write_complete(output_dir, "dialogue")
+    monkeypatch.chdir(tmp_path)
+
+    exit_code = CLI.main(
+        [
+            "--output-dir",
+            "production",
+            "--genre",
+            "dialogue",
+            "--json-output",
+            "production/relative-summary.json",
+        ]
+    )
+
+    assert exit_code == 2
+    assert not (output_dir / "relative-summary.json").exists()
 
 
 def test_cli_exit_codes_human_summary_and_optional_json(

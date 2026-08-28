@@ -45,6 +45,16 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
+    if args.json_output is not None:
+        output_dir = args.output_dir.resolve()
+        json_output = args.json_output.resolve()
+        if json_output == output_dir or json_output.is_relative_to(output_dir):
+            print(
+                "--json-output must be outside --output-dir; production outputs "
+                "are strictly read-only",
+                file=sys.stderr,
+            )
+            return 2
     genres = tuple(args.genres or GENRES)
     result = verify_outputs(args.output_dir, genres)  # type: ignore[arg-type]
     print(format_human_summary(result))
