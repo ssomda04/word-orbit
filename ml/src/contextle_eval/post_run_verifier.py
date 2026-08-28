@@ -8,7 +8,7 @@ import json
 import math
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any, Literal
 
 Genre = Literal["newspaper", "dialogue", "online"]
@@ -209,17 +209,20 @@ def _verify_output_provenance(
         if not isinstance(declared, str) or not declared:
             result.fail(f"report.outputs.{key} must be a non-empty path string")
             continue
-        declared_path = Path(declared)
         actual = actual_path.resolve()
-        if declared_path.is_absolute():
-            matches = declared_path.resolve() == actual
+        if "\0" in declared:
+            matches = False
+        elif Path(declared).is_absolute():
+            matches = Path(declared).resolve() == actual
+        elif PureWindowsPath(declared).is_absolute():
+            matches = PureWindowsPath(declared) == PureWindowsPath(str(actual))
         else:
-            # The producer serializes its Path verbatim. A bare filename is
-            # relative to the report directory; a longer path is relative to
-            # the producer's working directory.
+            declared_parts = PurePosixPath(declared.replace("\\", "/")).parts
+            actual_parts = PurePosixPath(str(actual).replace("\\", "/")).parts
             matches = (
-                (actual_path.parent / declared_path).resolve() == actual
-                or declared_path.resolve() == actual
+                len(declared_parts) > 1
+                and ".." not in declared_parts
+                and actual_parts[-len(declared_parts) :] == declared_parts
             )
         if not matches:
             result.fail(f"report.outputs.{key} does not identify {actual_path.name}")

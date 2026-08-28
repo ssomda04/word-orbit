@@ -109,8 +109,15 @@ def _write_complete(root: Path, genre: str) -> None:
                 "frequency_assignment": "0",
             }
         )
+    report = _report(genre)
+    report["outputs"] = {
+        "frequency_csv": f"{root.name}/{genre}_frequency.csv",
+        "derivational_candidates_csv_gz": (
+            f"{root.name}/{genre}_derivational_candidates.csv.gz"
+        ),
+    }
     (root / f"{genre}_report.json").write_text(
-        json.dumps(_report(genre), ensure_ascii=False), encoding="utf-8"
+        json.dumps(report, ensure_ascii=False), encoding="utf-8"
     )
 
 
@@ -298,6 +305,54 @@ def test_wrong_output_provenance_is_blocking(
     assert any(f"report.outputs.{key}" in failure for failure in result.failures)
 
 
+@pytest.mark.parametrize("separator", ["\\", "/"])
+def test_production_relative_output_provenance_passes(
+    tmp_path: Path, separator: str
+) -> None:
+    output_dir = tmp_path / "ml" / "data" / "modu_raw_frequency"
+    _write_complete(output_dir, "dialogue")
+    prefix = separator.join(("ml", "data", "modu_raw_frequency"))
+    _mutate_report(
+        output_dir,
+        "dialogue",
+        lambda report: report["outputs"].update(
+            frequency_csv=f"{prefix}{separator}dialogue_frequency.csv",
+            derivational_candidates_csv_gz=(
+                f"{prefix}{separator}dialogue_derivational_candidates.csv.gz"
+            ),
+        ),
+    )
+
+    assert verify_genre(output_dir, "dialogue").passed is True
+
+
+@pytest.mark.parametrize(
+    "declared",
+    [
+        "ml/data/wrong/dialogue_frequency.csv",
+        "wrong/dialogue_frequency.csv",
+        "ml/data/modu_raw_frequency/wrong.csv",
+        "dialogue_frequency.csv",
+        "../modu_raw_frequency/dialogue_frequency.csv",
+    ],
+)
+def test_invalid_relative_frequency_provenance_is_blocking(
+    tmp_path: Path, declared: str
+) -> None:
+    output_dir = tmp_path / "ml" / "data" / "modu_raw_frequency"
+    _write_complete(output_dir, "dialogue")
+    _mutate_report(
+        output_dir,
+        "dialogue",
+        lambda report: report["outputs"].update(frequency_csv=declared),
+    )
+
+    result = verify_genre(output_dir, "dialogue")
+
+    assert result.passed is False
+    assert any("report.outputs.frequency_csv" in item for item in result.failures)
+
+
 def test_absolute_output_provenance_passes(tmp_path: Path) -> None:
     _write_complete(tmp_path, "dialogue")
     _mutate_report(
@@ -312,6 +367,22 @@ def test_absolute_output_provenance_passes(tmp_path: Path) -> None:
     )
 
     assert verify_genre(tmp_path, "dialogue").passed is True
+
+
+def test_incorrect_absolute_output_provenance_is_blocking(tmp_path: Path) -> None:
+    _write_complete(tmp_path, "dialogue")
+    _mutate_report(
+        tmp_path,
+        "dialogue",
+        lambda report: report["outputs"].update(
+            frequency_csv=str((tmp_path / "wrong_frequency.csv").resolve())
+        ),
+    )
+
+    result = verify_genre(tmp_path, "dialogue")
+
+    assert result.passed is False
+    assert any("report.outputs.frequency_csv" in item for item in result.failures)
 
 
 def test_json_output_cannot_overwrite_production_report(
