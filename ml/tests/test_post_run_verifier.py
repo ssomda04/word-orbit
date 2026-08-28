@@ -259,6 +259,51 @@ def test_false_count_conservation_flag_is_blocking(tmp_path: Path) -> None:
     assert any("roles_conserved" in failure for failure in result.failures)
 
 
+def test_placeholder_candidate_difference_is_conserved(tmp_path: Path) -> None:
+    _write_complete(tmp_path, "online")
+    candidate = tmp_path / "online_derivational_candidates.csv.gz"
+    with gzip.open(candidate, "wt", encoding="utf-8", newline="") as handle:
+        csv.DictWriter(handle, fieldnames=CANDIDATE_FIELDS).writeheader()
+
+    def apply_placeholder_counts(report: dict[str, object]) -> None:
+        roles = report["lexical_roles"]
+        audit = report["placeholder_audit"]
+        conservation = report["count_conservation"]
+        assert isinstance(roles, dict)
+        assert isinstance(audit, dict)
+        assert isinstance(conservation, dict)
+        roles["derivational_base"] = 0
+        roles["derivational_candidate"] = 1
+        roles["excluded_placeholder"] = 1
+        roles["nonlexical"] = 1
+        audit["candidates_excluded"] = 1
+        conservation["candidate_rows"] = 0
+        conservation["base_equals_candidate_count"] = False
+
+    _mutate_report(tmp_path, "online", apply_placeholder_counts)
+
+    result = verify_genre(tmp_path, "online")
+
+    assert result.passed is True
+    assert any("pre-placeholder candidate count" in warning for warning in result.warnings)
+
+
+def test_candidate_placeholder_decomposition_mismatch_is_blocking(
+    tmp_path: Path,
+) -> None:
+    _write_complete(tmp_path, "online")
+    _mutate_report(
+        tmp_path,
+        "online",
+        lambda report: report["placeholder_audit"].update(candidates_excluded=1),
+    )
+
+    result = verify_genre(tmp_path, "online")
+
+    assert result.passed is False
+    assert any("retained plus excluded" in failure for failure in result.failures)
+
+
 def test_candidate_header_and_expected_row_pass(tmp_path: Path) -> None:
     _write_complete(tmp_path, "dialogue")
 
