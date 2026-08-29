@@ -987,6 +987,22 @@ export default function ProjectPage() {
           Word Embedding based Semantic Word Exploration
         </p>
       </footer>
+
+      {/* Team */}
+      <footer className={styles.teamFooter}>
+
+        <p className={styles.teamLabel}>TEAM LOSSLESS</p>
+
+        <div className={styles.teamMembers}>
+          <span>김다솜</span>
+          <span className={styles.teamDot}>·</span>
+          <span>서희연</span>
+          <span className={styles.teamDot}>·</span>
+          <span>이수아</span>
+        </div>
+
+        <p className={styles.teamProject}>SOGANG UNIVERSITY</p>
+      </footer>
     </main>
   );
 }
