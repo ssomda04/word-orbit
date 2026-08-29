@@ -2,6 +2,7 @@ import type {
   CreateGameResponse,
   ErrorResponse,
   GameStateResponse,
+  GiveUpResponse,
   Guess,
 } from "@/types/api";
 
@@ -100,4 +101,21 @@ export async function getGameState(
   });
 
   return parseResponse<GameStateResponse>(response);
+}
+
+/**
+ * 현재 진행 중인 게임을 포기하고 정답을 공개한다.
+ */
+export async function giveUpGame(
+  gameId: string,
+): Promise<GiveUpResponse> {
+  const response = await fetch(
+    `${API_URL}/api/games/${gameId}/give-up`,
+    {
+      method: "POST",
+      cache: "no-store",
+    },
+  );
+
+  return parseResponse<GiveUpResponse>(response);
 }

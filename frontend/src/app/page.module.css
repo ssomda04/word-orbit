@@ -111,6 +111,35 @@
   background: rgba(116, 181, 255, 0.08);
 }
 
+.startButton {
+  color: #071426 !important;
+  background: #8dcbff !important;
+  border-color: #8dcbff !important;
+  font-weight: 700;
+
+  box-shadow:
+    0 0 14px rgba(141, 203, 255, 0.35),
+    0 0 28px rgba(141, 203, 255, 0.12);
+}
+
+.startButton:hover {
+  color: #071426 !important;
+  background: #b8ddff !important;
+  border-color: #b8ddff !important;
+
+  box-shadow:
+    0 0 18px rgba(141, 203, 255, 0.5),
+    0 0 36px rgba(141, 203, 255, 0.18);
+
+  transform: translateY(-1px);
+}
+
+.startButton:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+}
+
 .mainContent {
   min-height: calc(100vh - 232px);
   display: grid;
@@ -517,6 +546,37 @@
 .inputRow button:hover {
   transform: translateY(-1px);
   box-shadow: 0 13px 32px rgba(77, 158, 238, 0.32);
+}
+
+
+.giveUpButton {
+  justify-self: end;
+  width: fit-content;
+  border: 1px solid rgba(255, 142, 142, 0.16);
+  border-radius: 999px;
+  padding: 7px 12px;
+  color: #8f9db1;
+  background: rgba(255, 110, 110, 0.035);
+  font-size: 0.7rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    color 160ms ease,
+    border-color 160ms ease,
+    background 160ms ease,
+    transform 160ms ease;
+}
+
+.giveUpButton:hover:not(:disabled) {
+  color: #ffd0d0;
+  border-color: rgba(255, 142, 142, 0.34);
+  background: rgba(255, 110, 110, 0.08);
+  transform: translateY(-1px);
+}
+
+.giveUpButton:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 .bestGuessCard {
@@ -1108,7 +1168,63 @@
 }
 
 .answerReveal {
-  margin-top: 12px;
+  display: grid;
+  gap: 8px;
+  margin-top: 2px;
+  padding: 15px 16px;
+  border: 1px solid rgba(126, 190, 255, 0.18);
+  border-radius: 14px;
+  background:
+    radial-gradient(
+      circle at 90% 10%,
+      rgba(105, 188, 255, 0.13),
+      transparent 45%
+    ),
+    rgba(6, 15, 32, 0.78);
+}
+
+.answerReveal > span {
+  color: #8dcbff;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.answerReveal p {
+  margin: 0;
+  color: #c6d2e2;
+  font-size: 0.8rem;
+}
+
+.answerReveal strong {
+  color: #ffffff;
+  font-size: 1rem;
+}
+
+.answerReveal button {
+  width: 100%;
+  min-height: 40px;
+  margin-top: 3px;
+  border: 1px solid rgba(145, 209, 255, 0.32);
+  border-radius: 10px;
+  color: #06111f;
+  background: linear-gradient(135deg, #d9efff, #76bfff);
+  font-weight: 750;
+  cursor: pointer;
+  box-shadow: 0 8px 24px rgba(77, 158, 238, 0.18);
+  transition:
+    transform 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.answerReveal button:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 11px 28px rgba(77, 158, 238, 0.3);
+}
+
+.answerReveal button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 /*

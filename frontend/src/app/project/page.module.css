@@ -1039,3 +1039,553 @@
     flex-direction: column;
   }
 }
+
+/* ---------- SEARCH RESEARCH ---------- */
+
+.constraintGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+
+  margin: 38px 0 54px;
+}
+
+.constraintCard {
+  min-height: 180px;
+
+  padding: 24px;
+
+  border: 1px solid rgba(126, 170, 255, 0.14);
+  border-radius: 18px;
+
+  background: rgba(255, 255, 255, 0.028);
+}
+
+.constraintCard span {
+  display: block;
+
+  margin-bottom: 18px;
+
+  color: #7faeff;
+
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.13em;
+}
+
+.constraintCard strong {
+  display: block;
+
+  margin-bottom: 10px;
+
+  color: rgba(255, 255, 255, 0.94);
+
+  font-size: 15px;
+}
+
+.constraintCard p {
+  margin: 0;
+
+  color: rgba(255, 255, 255, 0.58);
+
+  font-size: 11px;
+  line-height: 1.8;
+}
+
+.researchDivider {
+  margin: 62px 0 28px;
+}
+
+.researchDivider > span {
+  display: block;
+
+  margin-bottom: 9px;
+
+  color: #7faeff;
+
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+}
+
+.researchDivider > strong {
+  color: rgba(255, 255, 255, 0.92);
+
+  font-size: 20px;
+  font-weight: 750;
+}
+
+.strategyGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+
+  margin-bottom: 42px;
+}
+
+.strategyCard {
+  min-height: 210px;
+
+  padding: 26px;
+
+  border: 1px solid rgba(126, 170, 255, 0.13);
+  border-radius: 20px;
+
+  background:
+    linear-gradient(
+      180deg,
+      rgba(80, 124, 210, 0.055),
+      rgba(255, 255, 255, 0.02)
+    );
+}
+
+.strategyTag {
+  display: block;
+
+  margin-bottom: 17px;
+
+  color: #88b2ff;
+
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.15em;
+}
+
+.strategyCard h3 {
+  margin: 0 0 11px;
+
+  color: #f6f9ff;
+
+  font-size: 17px;
+  font-weight: 750;
+}
+
+.strategyCard p {
+  margin: 0;
+
+  color: rgba(255, 255, 255, 0.66);
+
+  font-size: 12px;
+  line-height: 1.8;
+}
+
+.strategyCard small {
+  display: block;
+
+  margin-top: 20px;
+  padding-top: 16px;
+
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+
+  color: rgba(255, 255, 255, 0.42);
+
+  font-size: 10px;
+  line-height: 1.7;
+}
+
+.hybridResearch {
+  margin: 42px 0 54px;
+  padding: 30px;
+
+  border: 1px solid rgba(124, 170, 255, 0.22);
+  border-radius: 24px;
+
+  background:
+    radial-gradient(
+      circle at 50% 100%,
+      rgba(83, 135, 236, 0.12),
+      transparent 65%
+    ),
+    rgba(255, 255, 255, 0.025);
+}
+
+.hybridHeader > span {
+  color: #89b3ff;
+
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.15em;
+}
+
+.hybridHeader > span {
+  color: #8fb9ff;
+
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.15em;
+}
+
+.hybridHeader h3 {
+  margin: 12px 0 14px;
+
+  color: #f8fbff;
+
+  font-size: 29px;
+  font-weight: 800;
+}
+
+.hybridHeader p {
+  margin: 0;
+
+  color: rgba(255, 255, 255, 0.7);
+
+  font-size: 14px;
+  line-height: 1.85;
+}
+
+.hybridStep {
+  padding: 26px;
+
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 17px;
+
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.hybridStep span {
+  display: block;
+
+  margin-bottom: 17px;
+
+  color: #8db8ff;
+
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+}
+
+.hybridStep strong {
+  display: block;
+
+  margin-bottom: 12px;
+
+  color: rgba(255, 255, 255, 0.96);
+
+  font-size: 17px;
+  font-weight: 750;
+}
+
+.hybridStep p {
+  margin: 0;
+
+  color: rgba(255, 255, 255, 0.68);
+
+  font-size: 13px;
+  line-height: 1.85;
+}
+
+.hybridArrow {
+  width: 100%;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+
+  color: #7fb3ff;
+  font-size: 28px;
+  line-height: 1;
+
+  padding: 16px 0;
+}
+
+.hybridReturn {
+  margin: 26px 0 0;
+  padding-top: 22px;
+
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+
+  color: rgba(255, 255, 255, 0.62);
+
+  font-size: 12px;
+  line-height: 1.8;
+}
+
+.metricGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+
+  margin: 28px 0 38px;
+}
+
+.metricCard {
+  padding: 22px;
+
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 17px;
+
+  background: rgba(255, 255, 255, 0.026);
+}
+
+.metricCard span {
+  display: block;
+
+  margin-bottom: 12px;
+
+  color: #7faeff;
+
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+}
+
+.metricCard strong {
+  display: block;
+
+  margin-bottom: 8px;
+
+  color: #f5f8ff;
+
+  font-size: 17px;
+}
+
+.metricCard p {
+  margin: 0;
+
+  color: rgba(255, 255, 255, 0.52);
+
+  font-size: 10px;
+  line-height: 1.7;
+}
+
+.researchStatus {
+  margin-top: 42px;
+  padding: 24px 26px;
+
+  border-left: 2px solid #719eff;
+  border-radius: 0 16px 16px 0;
+
+  background: rgba(78, 124, 213, 0.065);
+}
+
+.researchStatus > span {
+  display: block;
+
+  margin-bottom: 14px;
+
+  color: #8ab4ff;
+
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.15em;
+}
+
+.researchStatus p {
+  margin: 0;
+
+  color: rgba(255, 255, 255, 0.65);
+
+  font-size: 11px;
+  line-height: 1.85;
+}
+
+.researchStatus p + p {
+  margin-top: 12px;
+}
+
+.researchStatus strong {
+  color: rgba(255, 255, 255, 0.9);
+}
+
+@media (max-width: 760px) {
+  .constraintGrid,
+  .strategyGrid,
+  .metricGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .hybridFlow {
+    grid-template-columns: 1fr;
+  }
+
+  .hybridArrow {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    width: 100%;
+    margin: 4px 0;
+
+    color: rgba(126, 170, 255, 0.75);
+
+    font-size: 25px;
+    line-height: 1;
+    }
+}
+
+/* ---------- COSINE VECTOR VISUAL ---------- */
+
+.cosineVisualGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 22px;
+
+  margin-top: 42px;
+}
+
+.vectorExample {
+  overflow: hidden;
+
+  border: 1px solid rgba(126, 170, 255, 0.18);
+  border-radius: 22px;
+
+  background:
+    linear-gradient(
+      180deg,
+      rgba(88, 137, 226, 0.055),
+      rgba(255, 255, 255, 0.018)
+    );
+}
+
+.vectorExampleHeader {
+  padding: 26px 28px 8px;
+}
+
+.vectorExampleHeader > span {
+  display: block;
+
+  margin-bottom: 10px;
+
+  color: #86b6ff;
+
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+}
+
+.vectorExampleHeader strong {
+  display: block;
+
+  margin-bottom: 10px;
+
+  color: rgba(255, 255, 255, 0.94);
+
+  font-size: 18px;
+  font-weight: 750;
+}
+
+.vectorExampleHeader p {
+  margin: 0;
+
+  color: rgba(255, 255, 255, 0.6);
+
+  font-size: 12px;
+  line-height: 1.8;
+}
+
+.vectorCanvas {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  min-height: 275px;
+  padding: 8px 22px 4px;
+}
+
+.vectorSvg {
+  width: 100%;
+  max-width: 470px;
+  height: auto;
+}
+
+.vectorAxis {
+  stroke: rgba(255, 255, 255, 0.1);
+  stroke-width: 1.5;
+}
+
+.vectorOrigin {
+  fill: rgba(255, 255, 255, 0.65);
+}
+
+.vectorLineBlue {
+  stroke: #86b6ff;
+  stroke-width: 5;
+  stroke-linecap: round;
+}
+
+.vectorLineWhite {
+  stroke: rgba(243, 247, 255, 0.92);
+  stroke-width: 5;
+  stroke-linecap: round;
+}
+
+.angleArc {
+  fill: none;
+  stroke: rgba(141, 184, 255, 0.65);
+  stroke-width: 2;
+  stroke-dasharray: 4 4;
+}
+
+.angleText {
+  fill: #9fc5ff;
+
+  font-size: 17px;
+  font-weight: 700;
+}
+
+.vectorLabelBlue {
+  fill: #90bcff;
+
+  font-size: 13px;
+  font-weight: 750;
+}
+
+.vectorLabelWhite {
+  fill: rgba(255, 255, 255, 0.9);
+
+  font-size: 13px;
+  font-weight: 750;
+}
+
+.cosineResult {
+  display: grid;
+  grid-template-columns: auto auto 1fr;
+  align-items: center;
+  gap: 14px;
+
+  padding: 19px 28px;
+
+  border-top: 1px solid rgba(255, 255, 255, 0.065);
+
+  background: rgba(255, 255, 255, 0.018);
+}
+
+.cosineResult span {
+  color: rgba(255, 255, 255, 0.55);
+
+  font-size: 11px;
+}
+
+.cosineResult strong {
+  color: #91bdff;
+
+  font-size: 15px;
+  font-weight: 800;
+}
+
+.cosineResult p {
+  margin: 0;
+
+  color: rgba(255, 255, 255, 0.55);
+
+  font-size: 11px;
+  text-align: right;
+}
+
+@media (max-width: 760px) {
+  .cosineVisualGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .vectorCanvas {
+    min-height: 240px;
+  }
+
+  .cosineResult {
+    grid-template-columns: 1fr;
+    gap: 5px;
+  }
+
+  .cosineResult p {
+    text-align: left;
+  }
+}

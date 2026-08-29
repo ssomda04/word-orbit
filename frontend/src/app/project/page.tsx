@@ -302,9 +302,7 @@ export default function ProjectPage() {
             <div className={styles.formulaBox}>
               <span>COSINE SIMILARITY</span>
 
-              <strong>
-                sim(a, b) = (a · b) / (‖a‖ ‖b‖)
-              </strong>
+              <strong>sim(a, b) = (a · b) / (‖a‖ ‖b‖)</strong>
 
               <p>
                 두 벡터의 내적을 각각의 벡터 크기로 정규화하여 두 벡터가
@@ -340,31 +338,254 @@ export default function ProjectPage() {
               </div>
             </div>
 
-            <div className={styles.similarityExample}>
-              <div>
-                <span>비슷한 의미의 단어</span>
-                <strong>방향이 비슷함</strong>
+            <div className={styles.cosineVisualGrid}>
+              {/* 높은 유사도 */}
+              <div className={styles.vectorExample}>
+                <div className={styles.vectorExampleHeader}>
+                  <span>HIGH SIMILARITY</span>
+                  <strong>방향이 비슷한 두 벡터</strong>
+                  <p>
+                    두 벡터 사이의 각도가 작을수록 코사인 유사도는 1에
+                    가까워집니다.
+                  </p>
+                </div>
 
-                <div className={styles.bar}>
-                  <span style={{ width: "88%" }} />
+                <div className={styles.vectorCanvas}>
+                  <svg
+                    viewBox="0 0 420 260"
+                    className={styles.vectorSvg}
+                    role="img"
+                    aria-label="흰색 벡터는 70도, 파란색 벡터는 60도인 높은 코사인 유사도 예시"
+                  >
+                    <defs>
+                      <marker
+                        id="arrowWhiteHigh"
+                        markerWidth="5"
+                        markerHeight="5"
+                        refX="4.5"
+                        refY="2.5"
+                        orient="auto"
+                        markerUnits="strokeWidth"
+                      >
+                        <path d="M0,0 L5,2.5 L0,5 Z" fill="#f3f7ff" />
+                      </marker>
+
+                      <marker
+                        id="arrowBlueHigh"
+                        markerWidth="5"
+                        markerHeight="5"
+                        refX="4.5"
+                        refY="2.5"
+                        orient="auto"
+                        markerUnits="strokeWidth"
+                      >
+                        <path d="M0,0 L5,2.5 L0,5 Z" fill="#86b6ff" />
+                      </marker>
+                    </defs>
+
+                    <line
+                      x1="80"
+                      y1="205"
+                      x2="80"
+                      y2="45"
+                      className={styles.vectorAxis}
+                    />
+
+                    <line
+                      x1="80"
+                      y1="205"
+                      x2="355"
+                      y2="205"
+                      className={styles.vectorAxis}
+                    />
+
+                    <circle
+                      cx="80"
+                      cy="205"
+                      r="4"
+                      className={styles.vectorOrigin}
+                    />
+
+                    {/* 흰색 기준 벡터: 70° */}
+                    <line
+                      x1="80"
+                      y1="205"
+                      x2="135"
+                      y2="55"
+                      className={styles.vectorLineWhite}
+                      style={{ strokeWidth: 2 }}
+                      markerEnd="url(#arrowWhiteHigh)"
+                    />
+
+                    {/* 파란색 비교 벡터: 60° */}
+                    <line
+                      x1="80"
+                      y1="205"
+                      x2="160"
+                      y2="66"
+                      className={styles.vectorLineBlue}
+                      style={{ strokeWidth: 2 }}
+                      markerEnd="url(#arrowBlueHigh)"
+                    />
+
+                    {/* 두 벡터 사이 약 10° */}
+                    <path
+                      d="M 110 153 A 60 60 0 0 0 100.5 148.6"
+                      className={styles.angleArc}
+                    />
+
+                    <text x="120" y="170" className={styles.angleText}>
+                      θ
+                    </text>
+
+                    <text
+                      x="95"
+                      y="45"
+                      className={styles.vectorLabelWhite}
+                    >
+                      vector B
+                    </text>
+
+                    <text
+                      x="168"
+                      y="68"
+                      className={styles.vectorLabelBlue}
+                    >
+                      vector A
+                    </text>
+                  </svg>
+                </div>
+
+                <div className={styles.cosineResult}>
+                  <span>작은 θ</span>
+                  <strong>cos θ → 1</strong>
+                  <p>의미적 방향이 유사함</p>
                 </div>
               </div>
 
-              <div>
-                <span>관련성이 낮은 단어</span>
-                <strong>방향 차이가 큼</strong>
+              {/* 낮은 유사도 */}
+              <div className={styles.vectorExample}>
+                <div className={styles.vectorExampleHeader}>
+                  <span>LOW SIMILARITY</span>
+                  <strong>방향 차이가 큰 두 벡터</strong>
+                  <p>
+                    두 벡터 사이의 각도가 커질수록 코사인 유사도는 낮아집니다.
+                  </p>
+                </div>
 
-                <div className={styles.bar}>
-                  <span style={{ width: "28%" }} />
+                <div className={styles.vectorCanvas}>
+                  <svg
+                    viewBox="0 0 420 260"
+                    className={styles.vectorSvg}
+                    role="img"
+                    aria-label="흰색 벡터는 70도, 파란색 벡터는 20도인 낮은 코사인 유사도 예시"
+                  >
+                    <defs>
+                      <marker
+                        id="arrowWhiteLow"
+                        markerWidth="5"
+                        markerHeight="5"
+                        refX="4.5"
+                        refY="2.5"
+                        orient="auto"
+                        markerUnits="strokeWidth"
+                      >
+                        <path d="M0,0 L5,2.5 L0,5 Z" fill="#f3f7ff" />
+                      </marker>
+
+                      <marker
+                        id="arrowBlueLow"
+                        markerWidth="5"
+                        markerHeight="5"
+                        refX="4.5"
+                        refY="2.5"
+                        orient="auto"
+                        markerUnits="strokeWidth"
+                      >
+                        <path d="M0,0 L5,2.5 L0,5 Z" fill="#86b6ff" />
+                      </marker>
+                    </defs>
+
+                    <line
+                      x1="80"
+                      y1="205"
+                      x2="80"
+                      y2="45"
+                      className={styles.vectorAxis}
+                    />
+
+                    <line
+                      x1="80"
+                      y1="205"
+                      x2="355"
+                      y2="205"
+                      className={styles.vectorAxis}
+                    />
+
+                    <circle
+                      cx="80"
+                      cy="205"
+                      r="4"
+                      className={styles.vectorOrigin}
+                    />
+
+                    {/* 흰색 기준 벡터: 높은 유사도 그림과 동일하게 70° */}
+                    <line
+                      x1="80"
+                      y1="205"
+                      x2="135"
+                      y2="55"
+                      className={styles.vectorLineWhite}
+                      style={{ strokeWidth: 2 }}
+                      markerEnd="url(#arrowWhiteLow)"
+                    />
+
+                    {/* 파란색 비교 벡터: 20° */}
+                    <line
+                      x1="80"
+                      y1="205"
+                      x2="230"
+                      y2="150"
+                      className={styles.vectorLineBlue}
+                      style={{ strokeWidth: 2 }}
+                      markerEnd="url(#arrowBlueLow)"
+                    />
+
+                    {/* 두 벡터 사이 약 50° */}
+                    <path
+                      d="M 136.4 184.5 A 60 60 0 0 0 100.5 148.6"
+                      className={styles.angleArc}
+                    />
+
+                    <text x="128" y="158" className={styles.angleText}>
+                      θ
+                    </text>
+
+                    <text
+                      x="95"
+                      y="45"
+                      className={styles.vectorLabelWhite}
+                    >
+                      vector B
+                    </text>
+
+                    <text
+                      x="240"
+                      y="153"
+                      className={styles.vectorLabelBlue}
+                    >
+                      vector A
+                    </text>
+                  </svg>
+                </div>
+
+                <div className={styles.cosineResult}>
+                  <span>큰 θ</span>
+                  <strong>cos θ ↓</strong>
+                  <p>의미적 방향 차이가 커짐</p>
                 </div>
               </div>
             </div>
-
-            <p className={styles.note}>
-              ※ 위 막대는 코사인 유사도의 의미를 설명하기 위한 시각적
-              예시이며, 실제 단어의 유사도는 사용한 임베딩 모델에 따라 달라질
-              수 있습니다.
-            </p>
           </div>
         </article>
 
@@ -442,129 +663,302 @@ export default function ProjectPage() {
           </div>
         </article>
 
-        {/* Search / optimization */}
+        {/* Human-constrained search research */}
         <article className={styles.section}>
-          <div className={styles.sectionBody}>
+        <div className={styles.sectionBody}>
             <span className={styles.sectionLabel}>
-              SEARCH &amp; OPTIMIZATION
+            HUMAN-CONSTRAINED SEARCH
             </span>
 
             <h2>더 적은 추측으로 정답을 찾을 수 있을까?</h2>
 
             <p className={styles.description}>
-              여기서 한 단계 더 나아가면 Word Orbit은 하나의
-              <strong> 탐색 문제(Search Problem)</strong>로 볼 수 있습니다.
+            Word Orbit을 단순한 단어 맞히기 게임이 아니라,
+            <strong> 제한된 정보만으로 목표를 찾아가는 탐색 문제</strong>로
+            바라보았습니다.
             </p>
 
             <blockquote className={styles.question}>
-              “이미 얻은 유사도 정보를 이용하면 다음 추측을 더 효율적으로
-              선택할 수 있지 않을까?”
+            “게임 내부 의미 공간에 직접 접근하지 않고,
+            플레이어에게 제공되는 피드백만을 이용할 때
+            어떤 탐색 전략이 Word Orbit의 평균 추측 횟수를 최소화할까?”
             </blockquote>
 
             <p className={styles.description}>
-              사용자가 어떤 단어 gᵢ를 추측하고 정답과의 유사도 sᵢ를 얻었다고
-              하면, 이 값은 단순히 이번 추측이 가까웠는지 멀었는지를
-              알려주는 점수만은 아닙니다. 지금까지 얻은 여러 유사도 값을
-              이용하면
-              <strong>
-                {" "}
-                정답 후보가 만족해야 하는 조건
-              </strong>
-              을 만들 수 있습니다.
+            여기서 중요한 것은 정답의 임베딩 벡터나 전체 단어의 유사도 배열을
+            알고 있는 최적 Solver를 만드는 것이 아닙니다.
+            실제 플레이어가 게임을 하며 얻을 수 있는
+            <strong> 추측 단어, 유사도, 순위와 같은 피드백</strong>만을 이용해
+            다음 단어를 선택하는 전략을 비교하는 것이 연구의 목표입니다.
             </p>
 
-            <div className={styles.formulaBox}>
-              <span>CANDIDATE SPACE</span>
-
-              <strong>
-                Cₜ = {"{"} w ∈ V : |sim(gᵢ, w) − sᵢ| ≤ ε, ∀ i = 1,...,t {"}"}
-              </strong>
-
-              <p>
-                지금까지의 모든 추측에서 얻은 유사도 조건을 동시에 만족하는
-                단어만 후보로 남기면, 추측이 반복될수록 가능한 정답 후보
-                공간을 점차 줄여갈 수 있습니다.
-              </p>
+            <div className={styles.constraintGrid}>
+            <div className={styles.constraintCard}>
+                <span>01 · FEEDBACK ONLY</span>
+                <strong>관측한 정보만 사용</strong>
+                <p>
+                현재까지 입력한 단어와 그 단어에 대해 반환된 유사도·순위만
+                다음 탐색의 근거로 사용합니다.
+                </p>
             </div>
 
-            <div className={styles.strategy}>
-              <div>
-                <span>EXPLORE</span>
+            <div className={styles.constraintCard}>
+                <span>02 · LIMITED RANK</span>
+                <strong>순위 정보 제한</strong>
+                <p>
+                전체 vocabulary의 정확한 순위를 그대로 사용하지 않고,
+                실제 플레이 환경에 가까운 제한된 순위 정보만 사용합니다.
+                </p>
+            </div>
+
+            <div className={styles.constraintCard}>
+                <span>03 · CANDIDATE BUDGET</span>
+                <strong>후보 탐색 폭 제한</strong>
+                <p>
+                매 턴 수만 개의 단어를 전수 탐색하지 않고,
+                한 번에 검토할 수 있는 후보 수를 제한합니다.
+                </p>
+            </div>
+            </div>
+
+            <div className={styles.researchDivider}>
+            <span>SEARCH STRATEGIES</span>
+            <strong>어떤 방식으로 다음 단어를 선택할까?</strong>
+            </div>
+
+            <div className={styles.strategyGrid}>
+            <div className={styles.strategyCard}>
+                <span className={styles.strategyTag}>GREEDY</span>
+                <h3>가장 가까운 곳을 따라가기</h3>
+                <p>
+                지금까지 가장 높은 유사도를 얻은 단어 주변에서
+                연관된 단어를 계속 탐색합니다.
+                </p>
+                <small>
+                직관적이지만 특정 의미 영역의 local optimum에 갇힐 수 있습니다.
+                </small>
+            </div>
+
+            <div className={styles.strategyCard}>
+                <span className={styles.strategyTag}>BROAD PROBE</span>
+                <h3>먼저 넓게 탐색하기</h3>
+                <p>
+                사람·장소·음식·감정·행동처럼 서로 다른 의미 영역의
+                기준 단어를 먼저 입력합니다.
+                </p>
+                <small>
+                초반 추측을 탐색에 사용해 정답이 위치한 의미 영역을 찾습니다.
+                </small>
+            </div>
+
+            <div className={styles.strategyCard}>
+                <span className={styles.strategyTag}>CONTRASTIVE</span>
+                <h3>비슷하지만 다른 방향 비교하기</h3>
+                <p>
+                현재 좋은 단어와 관련되면서도 서로 다른 의미 방향을 가진
+                단어들을 비교해 다음 이동 방향을 판단합니다.
+                </p>
+                <small>
+                한 의미 영역 안에서 어느 방향으로 더 이동할지를 판별합니다.
+                </small>
+            </div>
+
+            <div className={styles.strategyCard}>
+                <span className={styles.strategyTag}>RANK-BASED</span>
+                <h3>상대적인 위치를 이용하기</h3>
+                <p>
+                단순히 유사도 숫자 하나만 보는 대신 여러 추측의 상대적인
+                순서를 비교해 정답이 있을 가능성이 높은 영역을 좁힙니다.
+                </p>
+                <small>
+                여러 기준점으로 의미 공간을 삼각측량하는 방식과 비슷합니다.
+                </small>
+            </div>
+            </div>
+
+            <div className={styles.hybridResearch}>
+            <div className={styles.hybridHeader}>
+                <span>MAIN RESEARCH CANDIDATE</span>
+                <h3>Hybrid Search</h3>
+                <p>
+                하나의 전략만 반복하지 않고 탐색 상황에 따라
+                여러 전략을 전환하는 방식입니다.
+                </p>
+            </div>
+
+            <div className={styles.hybridFlow}>
+                <div className={styles.hybridStep}>
+                <span>01 · EXPLORE</span>
                 <strong>넓게 탐색</strong>
                 <p>
-                  처음에는 서로 다른 의미 영역의 단어를 입력해 정답이 위치한
-                  대략적인 영역을 탐색합니다.
+                    서로 다른 의미 영역을 탐색해 정답이 존재할 가능성이 높은
+                    영역을 찾습니다.
                 </p>
-              </div>
+                </div>
 
-              <div className={styles.strategyArrow}>→</div>
+                <div className={styles.hybridArrow}>↓</div>
 
-              <div>
-                <span>NARROW</span>
-                <strong>후보 축소</strong>
+                <div className={styles.hybridStep}>
+                <span>02 · DISCRIMINATE</span>
+                <strong>방향 판별</strong>
                 <p>
-                  지금까지 얻은 유사도 정보를 이용해 가능성이 낮은 영역을
-                  제거합니다.
+                    관련된 후보들을 비교하여 어느 의미 방향으로 이동해야 하는지
+                    판단합니다.
                 </p>
-              </div>
+                </div>
 
-              <div className={styles.strategyArrow}>→</div>
+                <div className={styles.hybridArrow}>↓</div>
 
-              <div>
-                <span>EXPLOIT</span>
+                <div className={styles.hybridStep}>
+                <span>03 · EXPLOIT</span>
                 <strong>집중 탐색</strong>
                 <p>
-                  후보가 좁혀진 이후에는 유사도가 높은 의미 영역 주변의
-                  단어를 집중적으로 탐색합니다.
+                    충분히 가까워졌다면 가장 가능성이 높은 의미 영역을
+                    집중적으로 탐색합니다.
                 </p>
-              </div>
+                </div>
             </div>
 
-            <p className={styles.researchNote}>
-              이 최적화 방법은 현재 Word Orbit이 자동으로 정답을 찾아주는
-              기능이 아니라, 게임을
-              <strong> 임베딩 공간에서의 탐색 문제</strong>로 바라보고 추가로
-              탐구한 전략입니다.
+            <p className={styles.hybridReturn}>
+                탐색이 일정 시간 개선되지 않으면 다시 이전 단계로 돌아가
+                다른 의미 방향을 탐색합니다.
             </p>
-          </div>
+            </div>
+
+            <div className={styles.researchDivider}>
+            <span>EVALUATION</span>
+            <strong>어떤 전략이 더 좋은지는 어떻게 판단할까?</strong>
+            </div>
+
+            <div className={styles.metricGrid}>
+            <div className={styles.metricCard}>
+                <span>PRIMARY</span>
+                <strong>Success@20</strong>
+                <p>20회 이내에 정답을 찾은 게임의 비율</p>
+            </div>
+
+            <div className={styles.metricCard}>
+                <span>CO-PRIMARY</span>
+                <strong>RMG@100</strong>
+                <p>최대 100회의 제한을 고려한 평균 추측 횟수</p>
+            </div>
+
+            <div className={styles.metricCard}>
+                <span>SEARCH</span>
+                <strong>Rank ≤ 1000</strong>
+                <p>정답과 가까운 의미 영역에 진입하기까지 필요한 추측 수</p>
+            </div>
+            </div>
+
+            <div className={styles.formulaBox}>
+            <span>RESTRICTED MEAN GUESSES</span>
+
+            <strong>RMG@100 = E[min(T, 100)]</strong>
+
+            <p>
+                제한된 횟수 안에 정답을 찾지 못한 경우까지 포함하여
+                전략의 평균적인 탐색 비용을 비교합니다.
+            </p>
+            </div>
+
+            <div className={styles.researchStatus}>
+            <span>RESEARCH STATUS</span>
+
+            <p>
+                현재 단계에서는 특정 전략이 최종적으로 가장 우수하다고
+                결론 내린 것이 아니라,
+                <strong>
+                {" "}
+                Greedy · Broad Probe · Contrastive · Rank-based · Hybrid
+                </strong>
+                전략을 동일한 제한정보 환경에서 비교하기 위한 실험 구조를
+                설계했습니다.
+            </p>
+
+            <p>
+                특히 <strong>Hybrid Search</strong>를 주요 연구 후보로 두고,
+                단순 Greedy 전략 및 정보 자체를 활용하지 않는 기준 전략과 비교하여
+                실제 추측 횟수를 얼마나 줄일 수 있는지 검증할 예정입니다.
+            </p>
+            </div>
+        </div>
         </article>
 
         {/* Data source */}
         <article className={styles.section}>
-          <div className={styles.sectionBody}>
-            <span className={styles.sectionLabel}>
-              DATA SOURCE
-            </span>
+            <div className={styles.sectionBody}>
+                <span className={styles.sectionLabel}>
+                    DATA SOURCE
+                </span>
 
-            <h2>Word Orbit의 단어 데이터</h2>
+                <h2>Word Orbit의 단어 데이터</h2>
+
+                <p className={styles.description}>
+                    Word Orbit의 단어 데이터는
+                    <strong> 위키백과의 한국어 텍스트를 기반</strong>으로 구성했습니다.
+                    위키백과에서 수집한 대규모 한국어 텍스트를 바탕으로 게임에서 탐색할
+                    수 있는 단어 후보를 만들고, 프로젝트에 적합한 형태로 전처리하여
+                    단어장을 구성했습니다.
+                </p>
+
+                <div className={styles.sourceCard}>
+                    <div className={styles.sourceIcon}>W</div>
+
+                <div>
+                    <span>BASE VOCABULARY</span>
+
+                    <h3>위키낱말사전(Wiktionary)</h3>
+
+                    <p>
+                        Word Orbit에서 사용하는 전체 단어 공간의 기반은
+                        <strong> 위키낱말사전(Wiktionary) </strong>입니다.
+                        위키백과에 등장하는 다양한 한국어 어휘를 추출하고 정제하여,
+                        사용자가 게임에서 입력하고 탐색할 수 있는 59,582개의 단어 후보를
+                        구성했습니다.
+                    </p>
+
+                    <p className={styles.sourceDetail}>
+                        이렇게 구성된 단어들은 임베딩 모델의 의미 공간에서 서로 다른
+                        위치를 가지며, 사용자가 입력한 단어와 정답 단어 사이의 코사인
+                        유사도와 순위를 계산하는 데 활용됩니다.
+                    </p>
+                </div>
+            </div>
 
             <div className={styles.sourceCard}>
-              <div className={styles.sourceIcon}>가</div>
+                <div className={styles.sourceIcon}>가</div>
 
-              <div>
-                <span>VOCABULARY SOURCE</span>
+                <div>
+                    <span>ANSWER FILTERING</span>
 
-                <h3>국립국어원 모두의 말뭉치</h3>
+                    <h3>국립국어원 언어 자료</h3>
 
-                <p>
-                  Word Orbit에서 사용하는 한국어 단어 목록은 국립국어원
-                  언어정보나눔터의
-                  <strong> 「모두의 말뭉치」</strong>에서 제공하는 한국어 언어
-                  자료를 바탕으로 구성했습니다.
-                </p>
+                    <p>
+                        전체 단어가 모두 게임의 정답으로 적합한 것은 아니기 때문에,
+                        <strong>
+                            {" "}
+                            국립국어원 말뭉치의 신문·대화·온라인 자료를 활용하여 
+                            정답 후보 단어의 실제 사용 빈도와 
+                            여러 장르에서의 사용 안정성
+                        </strong>
+                        을 검증했습니다.
+                        이후 단어의 metadata 조건과 
+                        genre frequency 조건을 
+                        함께 적용하여 최종 정답 후보군 4,785개를 구성했습니다.
+                    </p>
 
-                <p className={styles.sourceDetail}>
-                  원본 언어 자료에서 프로젝트에 활용할 단어를 추출하고,
-                  게임에 적합한 형태로 전처리 및 단어 선별 과정을 거쳐 Word
-                  Orbit의 단어장을 구성했습니다.
-                </p>
-              </div>
+                    <p className={styles.sourceDetail}>
+                        이를 통해 지나치게 특수하거나 게임 정답으로 사용하기 어려운
+                        단어를 걸러내고, 사용자가 의미를 추론하기에 적절한 단어들을
+                        정답 후보군으로 구성했습니다.
+                    </p>
+                </div>
             </div>
 
             <p className={styles.sourceNotice}>
-              출처: 국립국어원 언어정보나눔터 「모두의 말뭉치」
+                단어 데이터 기반: 위키낱말사전(Wiktionary) · 정답 후보 필터링 자료: 국립국어원
             </p>
-          </div>
+        </div>
         </article>
       </section>
 
