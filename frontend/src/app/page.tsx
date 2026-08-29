@@ -1,5 +1,7 @@
 "use client";
 
+import confetti from "canvas-confetti";
+
 import {
   useEffect,
   useMemo,
@@ -27,6 +29,7 @@ import {
   createGame,
   GameApiError,
   getGameState,
+  giveUpGame,
   submitGuess,
 } from "@/lib/gameApi";
 
@@ -421,6 +424,26 @@ export default function Home() {
             submittedGuess.guessId,
         ) ?? null;
 
+      if (updatedGame.status === "won") {
+        confetti({
+          particleCount: 70,
+          spread: 70,
+          origin: {
+            x: 0.25,
+            y: 0.7,
+          },
+        });
+
+        confetti({
+          particleCount: 70,
+          spread: 70,
+          origin: {
+            x: 0.75,
+            y: 0.7,
+          },
+        });
+      }
+
       setGame(
         updatedGame,
       );
@@ -436,6 +459,59 @@ export default function Home() {
           submittedDisplayGuess,
         );
       }
+
+      setInput("");
+    } catch (error) {
+      await handleApiError(
+        error,
+      );
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+
+  /*
+   * 게임 포기.
+   *
+   * 포기 전 확인을 거친 뒤 서버에서 게임을 abandoned 상태로 종료하고,
+   * 성공 응답에 포함된 정답을 즉시 화면에 공개한다.
+   */
+  async function handleGiveUp() {
+    if (
+      !game ||
+      isLoading ||
+      isFinished
+    ) {
+      return;
+    }
+
+    const confirmed =
+      window.confirm(
+        "정말 게임을 포기하시겠습니까?\n정답이 공개되고 현재 게임은 종료됩니다.",
+      );
+
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      setIsLoading(true);
+
+      setErrorMessage("");
+
+      const givenUpGame =
+        await giveUpGame(
+          game.gameId,
+        );
+
+      setGame({
+        ...game,
+        status:
+          givenUpGame.status,
+        answer:
+          givenUpGame.answer,
+      });
 
       setInput("");
     } catch (error) {
@@ -605,6 +681,7 @@ export default function Home() {
 
               <button
                 type="button"
+                className={styles.startButton}
                 onClick={
                   handleStartGame
                 }
@@ -896,6 +973,26 @@ export default function Home() {
                     </span>
                   </button>
                 </div>
+
+                {game &&
+                  !isFinished && (
+                    <button
+                      type="button"
+                      className={
+                        styles.giveUpButton
+                      }
+                      onClick={
+                        handleGiveUp
+                      }
+                      disabled={
+                        isLoading
+                      }
+                    >
+                      {isLoading
+                        ? "처리 중..."
+                        : "게임 포기"}
+                    </button>
+                  )}
               </form>
 
               {errorMessage && (
@@ -913,19 +1010,45 @@ export default function Home() {
 
               {isFinished &&
                 game?.answer && (
-                  <p
+                  <div
                     className={
                       styles.answerReveal
                     }
                   >
-                    정답은{" "}
-                    <strong>
-                      {
-                        game.answer
-                      }
-                    </strong>
-                    입니다.
-                  </p>
+                    <span>
+                      {game.status ===
+                      "abandoned"
+                        ? "게임을 포기했습니다."
+                        : "정답을 찾았습니다!"}
+                    </span>
+
+                    <p>
+                      정답은{" "}
+                      <strong>
+                        {
+                          game.answer
+                        }
+                      </strong>
+                      입니다.
+                    </p>
+
+                    {game.status ===
+                      "abandoned" && (
+                      <button
+                        type="button"
+                        onClick={
+                          handleStartGame
+                        }
+                        disabled={
+                          isLoading
+                        }
+                      >
+                        {isLoading
+                          ? "준비 중..."
+                          : "새 게임 시작"}
+                      </button>
+                    )}
+                  </div>
                 )}
 
               <section
