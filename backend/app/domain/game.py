@@ -6,7 +6,8 @@ elsewhere (``app.services.game.service``) and passed in, which keeps this module
 trivially unit-testable.
 
 The answer word lives here and never reaches a response schema on its own; see
-``app.schemas.game.to_game_state_response`` for the single reveal point.
+``app.schemas.game.to_game_state_response`` and ``to_give_up_response`` for the
+only two reveal points, both of which require the game to have left ``PLAYING``.
 """
 
 import unicodedata
@@ -24,13 +25,35 @@ MAX_WORD_LENGTH = 50
 class GameStatus(StrEnum):
     """Game lifecycle (docs/API_SPEC.md).
 
-    ``ABANDONED`` is part of the documented contract but unreachable today: no
-    endpoint abandons a game and there is no attempt limit.
+    ``ABANDONED`` is the state a game reaches when the player gives up
+    (``Game.give_up``). It was reserved by the contract before any endpoint
+    produced it; there is still no attempt limit, so those two endings —
+    ``WON`` and ``ABANDONED`` — remain the only ways a game finishes.
     """
 
     PLAYING = "playing"
     WON = "won"
     ABANDONED = "abandoned"
+
+
+class FinishReason(StrEnum):
+    """Why a finished game ended (docs/API_SPEC.md).
+
+    Derived from ``GameStatus`` rather than stored alongside it: the status
+    already records which of the two endings happened, so a second stored field
+    would only add a way for the two to disagree.
+    """
+
+    CORRECT = "correct"
+    GAVE_UP = "gave_up"
+
+
+# The whole mapping, in one place. A finishing status that is missing here has
+# no reason to report, which `Game.finish_reason` surfaces as `None`.
+_FINISH_REASONS: dict[GameStatus, FinishReason] = {
+    GameStatus.WON: FinishReason.CORRECT,
+    GameStatus.ABANDONED: FinishReason.GAVE_UP,
+}
 
 
 def normalize_word(raw: str) -> str:
@@ -92,6 +115,29 @@ class Game:
     @property
     def is_finished(self) -> bool:
         return self.status is not GameStatus.PLAYING
+
+    @property
+    def finish_reason(self) -> FinishReason | None:
+        """Why this game ended, or ``None`` while it is still playing."""
+        return _FINISH_REASONS.get(self.status)
+
+    def give_up(self) -> None:
+        """End the round at the player's request.
+
+        The same transition ``record_guess`` performs on a winning guess, with
+        the other ending: the game leaves ``PLAYING``, which is what stops
+        further guesses and what makes the answer revealable. Nothing is
+        recorded in ``guesses`` — giving up is not an attempt, so ``guessCount``
+        does not grow.
+
+        Raises:
+            GameAlreadyFinishedError: the game has already ended, whether by a
+                correct guess or by an earlier give-up.
+        """
+        if self.is_finished:
+            raise GameAlreadyFinishedError()
+
+        self.status = GameStatus.ABANDONED
 
     def find_guess(self, word: str) -> Guess | None:
         """Return the stored guess for ``word``, or ``None`` if it is new."""

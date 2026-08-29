@@ -12,6 +12,9 @@ export interface HealthResponse {
 
 export type GameStatus = "playing" | "won" | "abandoned";
 
+/** Why a finished game ended. Derived from `GameStatus` by the server. */
+export type FinishReason = "correct" | "gave_up";
+
 export interface Coordinate {
   x: number;
   y: number;
@@ -40,6 +43,19 @@ export interface GameStateResponse {
   guessCount: number;
   guesses: Guess[];
   answer: string | null;
+}
+
+/**
+ * Response of `POST /api/games/{gameId}/give-up`.
+ *
+ * `answer` is non-nullable here, unlike on `GameStateResponse`: this response
+ * only exists for a game that has just ended.
+ */
+export interface GiveUpResponse {
+  gameId: string;
+  status: GameStatus;
+  finishReason: FinishReason;
+  answer: string;
 }
 
 export interface ErrorResponse {

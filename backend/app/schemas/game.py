@@ -1,14 +1,15 @@
 """Wire schemas for the single-player game API (docs/API_SPEC.md).
 
-Note what is *absent*: no response model here carries the answer word except
-``GameStateResponse``, and its value is set in exactly one place —
-``to_game_state_response()``. That keeps "never reveal the answer early" to a
-single reviewable line.
+Note what is *absent*: only two response models here carry the answer word —
+``GameStateResponse`` and ``GiveUpResponse`` — and each one gets its value from
+exactly one mapper, ``to_game_state_response()`` and ``to_give_up_response()``.
+Both mappers refuse to reveal anything for a game still ``playing``, which keeps
+"never reveal the answer early" to two reviewable lines.
 """
 
 from pydantic import Field, field_validator
 
-from app.domain.game import Game, GameStatus, Guess
+from app.domain.game import FinishReason, Game, GameStatus, Guess
 from app.schemas.base import CamelModel, UtcTimestamp
 
 
@@ -49,6 +50,20 @@ class GuessResponse(CamelModel):
     rank: int | None = None
     is_answer: bool
     coordinate: Coordinate | None = None
+
+
+class GiveUpResponse(CamelModel):
+    """Response of `POST /api/games/{gameId}/give-up`.
+
+    `answer` is non-nullable here, unlike on `GameStateResponse`: this response
+    exists only for a game that has just ended, so there is no in-progress case
+    for it to represent.
+    """
+
+    game_id: str
+    status: GameStatus
+    finish_reason: FinishReason
+    answer: str
 
 
 class GameStateResponse(CamelModel):
@@ -93,4 +108,31 @@ def to_game_state_response(game: Game) -> GameStateResponse:
         guess_count=game.guess_count,
         guesses=[to_guess_response(guess) for guess in game.guesses],
         answer=game.answer if is_revealed else None,
+    )
+
+
+def to_give_up_response(game: Game) -> GiveUpResponse:
+    """Map a game the player has just given up to its wire form.
+
+    The second and last path by which the answer word can reach a client. The
+    reveal is guarded the same way as in `to_game_state_response`, by the game's
+    own status rather than by who called: `finish_reason` is `None` for exactly
+    the games that are still `playing`, so an in-progress game fails here
+    instead of being serialized with its answer.
+    """
+    reason = game.finish_reason
+    if reason is None:
+        # Unreachable through the router — `GameService.give_up` has already
+        # ended the game. Stated as a hard failure rather than a default,
+        # because the only alternative would be sending the answer word for a
+        # game still in progress. The resulting 500 says nothing (see
+        # `app.main.INTERNAL_ERROR_MESSAGE`), and this message never names the
+        # answer.
+        raise ValueError("cannot build a give-up response for a game still playing")
+
+    return GiveUpResponse(
+        game_id=game.id,
+        status=game.status,
+        finish_reason=reason,
+        answer=game.answer,
     )

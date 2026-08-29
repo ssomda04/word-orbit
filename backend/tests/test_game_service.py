@@ -10,7 +10,7 @@ from collections.abc import Sequence
 import pytest
 
 from app.core.errors import GameAlreadyFinishedError, GameNotFoundError, InvalidWordError
-from app.domain.game import MAX_WORD_LENGTH, GameStatus
+from app.domain.game import MAX_WORD_LENGTH, FinishReason, GameStatus
 from app.services.embedding import DeterministicEmbeddingService
 from app.services.game import GameService, InMemoryGameRepository
 from app.services.ranking import NullRankProvider
@@ -197,6 +197,66 @@ def test_guesses_keep_submission_order(service: GameService) -> None:
 
     assert [guess.word for guess in stored.guesses] == ["학생", "선생", "학교"]
     assert stored.guess_count == 3
+
+
+# --- give_up ---------------------------------------------------------------
+
+
+def test_give_up_finishes_the_game(service: GameService) -> None:
+    game = service.create_game()
+
+    given_up = service.give_up(game.id)
+
+    assert given_up.status is GameStatus.ABANDONED
+    assert given_up.finish_reason is FinishReason.GAVE_UP
+    assert service.get_game(game.id).status is GameStatus.ABANDONED
+
+
+def test_give_up_returns_the_game_with_its_answer(service: GameService) -> None:
+    """The service hands the answer to its caller; sending it is the schema's call."""
+    game = service.create_game()
+
+    assert service.give_up(game.id).answer == ANSWER
+
+
+def test_give_up_scores_nothing(service: GameService, embedder: FakeEmbeddingService) -> None:
+    game = service.create_game()
+
+    service.give_up(game.id)
+
+    assert embedder.calls == []
+    assert service.get_game(game.id).guess_count == 0
+
+
+def test_guess_after_give_up_raises(service: GameService) -> None:
+    game = service.create_game()
+    service.give_up(game.id)
+
+    with pytest.raises(GameAlreadyFinishedError):
+        service.submit_guess(game.id, "학생")
+
+
+def test_give_up_on_unknown_game_raises(service: GameService) -> None:
+    with pytest.raises(GameNotFoundError):
+        service.give_up("does-not-exist")
+
+
+def test_give_up_twice_raises(service: GameService) -> None:
+    game = service.create_game()
+    service.give_up(game.id)
+
+    with pytest.raises(GameAlreadyFinishedError):
+        service.give_up(game.id)
+
+
+def test_give_up_on_a_won_game_raises(service: GameService) -> None:
+    game = service.create_game()
+    service.submit_guess(game.id, ANSWER)
+
+    with pytest.raises(GameAlreadyFinishedError):
+        service.give_up(game.id)
+
+    assert service.get_game(game.id).status is GameStatus.WON
 
 
 # --- with the real deterministic embedder ----------------------------------
