@@ -13,8 +13,16 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Contextle",
-  description: "의미 기반 단어 추론 게임 (semantic word-guessing game).",
+  title: "Word Orbit",
+  description: "의미 기반 단어 추론 게임",
+
+  openGraph: {
+    title: "Word Orbit",
+    description:
+      "의미 기반 단어 추론 게임",
+    siteName: "Word Orbit",
+    type: "website",
+  },
 };
 
 export default function RootLayout({
